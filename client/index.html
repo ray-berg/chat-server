@@ -2,15 +2,20 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#faf8f5" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <title>Secure Chat</title>
     <link rel="stylesheet" href="styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   </head>
   <body>
     <main class="main-shell">
+      <!-- Auth Panel (Login/Register) -->
       <div class="auth-panel" id="authPanel">
         <h1>Secure Chat</h1>
-        <p class="tagline">Modern messaging with admin controls &amp; API access.</p>
+        <p class="tagline">Simple, secure messaging.</p>
         <div class="auth-forms">
           <form id="loginForm" method="post" action="/api/auth/login" autocomplete="on">
             <h2>Sign in</h2>
@@ -43,230 +48,267 @@
         </div>
       </div>
 
+      <!-- App Shell (Chat Interface) -->
       <div class="app-shell hidden" id="chatApp">
-        <aside class="sidebar">
-        <div class="user-card">
-          <div class="user-avatar">
-            <img id="currentUserAvatar" src="/assets/avatars/avatar-blue.svg" alt="Avatar" />
-            <span id="currentUserPresence" class="presence-dot offline" title="Offline"></span>
+        <!-- Mobile Header -->
+        <header class="mobile-header">
+          <button id="menuToggle" class="icon-btn" type="button" aria-label="Open menu">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="3" y1="6" x2="21" y2="6"/>
+              <line x1="3" y1="12" x2="21" y2="12"/>
+              <line x1="3" y1="18" x2="21" y2="18"/>
+            </svg>
+          </button>
+          <h1>Secure Chat</h1>
+          <div class="user-info">
+            <img id="mobileUserAvatar" class="avatar" src="/assets/avatars/avatar-blue.svg" alt="Your avatar" />
           </div>
-          <div class="user-meta">
-            <h2 id="currentUserName"></h2>
-            <p id="currentUserRole" class="user-role-line"></p>
-            <div class="user-card-actions">
-              <button id="openProfile" class="ghost small">Profile</button>
-              <button id="logoutBtn" class="ghost small">Sign out</button>
-              <button id="toggleDnd" class="ghost small dnd-toggle">Do Not Disturb</button>
+        </header>
+
+        <!-- Sidebar Backdrop (mobile) -->
+        <div id="sidebarBackdrop" class="sidebar-backdrop"></div>
+
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+          <!-- Close button (mobile only) -->
+          <button id="closeSidebar" class="icon-btn sidebar-close" type="button" aria-label="Close menu">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+
+          <!-- User Card -->
+          <div class="user-card">
+            <div class="user-avatar">
+              <img id="currentUserAvatar" src="/assets/avatars/avatar-blue.svg" alt="Avatar" />
+              <span id="currentUserPresence" class="presence-dot offline" title="Offline"></span>
+            </div>
+            <div class="user-meta">
+              <h2 id="currentUserName"></h2>
+              <p id="currentUserRole" class="user-role-line"></p>
+              <div class="user-card-actions">
+                <button id="openProfile" class="ghost small">Profile</button>
+                <button id="logoutBtn" class="ghost small">Sign out</button>
+                <button id="toggleDnd" class="ghost small dnd-toggle">DND</button>
+              </div>
             </div>
           </div>
-        </div>
-        <div class="search-panel">
-          <input id="userSearch" type="search" placeholder="Search users…" />
-          <ul id="userResults"></ul>
-        </div>
-        <div class="rooms-panel">
-          <div class="panel-header">
-            <h3>Rooms</h3>
-            <div class="rooms-actions">
-              <button id="refreshRooms" class="ghost">↻</button>
-              <button id="createRoomBtn" class="ghost small hidden">+ Room</button>
-            </div>
+
+          <!-- Search Panel -->
+          <div class="search-panel">
+            <input id="userSearch" type="search" placeholder="Search users..." />
+            <ul id="userResults"></ul>
           </div>
-          <div id="roomsList" class="rooms-list"></div>
-        </div>
-        <details class="direct-messages-panel" open>
-          <summary>
+
+          <!-- Rooms Panel -->
+          <div class="rooms-panel">
             <div class="panel-header">
-              <h3>Direct Messages</h3>
-              <div class="dm-panel-actions">
-                <button id="newDmBtn" class="ghost small">+ DM</button>
-                <button id="refreshConversations" class="ghost">↻</button>
+              <h3>Rooms</h3>
+              <div class="panel-actions">
+                <button id="refreshRooms" class="ghost small" title="Refresh">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="23 4 23 10 17 10"/>
+                    <polyline points="1 20 1 14 7 14"/>
+                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+                  </svg>
+                </button>
+                <button id="createRoomBtn" class="ghost small hidden">+ Room</button>
               </div>
             </div>
-          </summary>
-          <div id="conversationList" class="conversation-list"></div>
-        </details>
-      </aside>
-      <section class="main-column">
-        <div id="approvalsPanel" class="approvals-toolbar hidden">
-          <div class="approvals-info">
-            <div class="approvals-title">
-              <span>Approvals</span>
-              <span id="approvalsAlertBadge" class="approvals-alert hidden">New</span>
-            </div>
-            <div class="approvals-counts">
-              <span id="incomingApprovalCount" class="approval-pill">Incoming: 0</span>
-              <span id="outgoingApprovalCount" class="approval-pill">Outgoing: 0</span>
-            </div>
+            <div id="roomsList" class="rooms-list"></div>
           </div>
-          <div class="approvals-actions">
-            <button id="newApprovalBtn" class="ghost small" title="Request manager approval">Request</button>
-            <button id="reviewApprovalsBtn" class="ghost small" title="Review approvals in console">Review</button>
-            <button id="refreshApprovals" class="ghost small" title="Refresh approvals">↻</button>
-          </div>
-        </div>
-        <div class="view-tabs">
-          <button id="tabChat" class="active" data-view="chat">Chat</button>
-          <button id="tabProfile" data-view="profile">Profile</button>
-        </div>
-        <main class="chat-panel" id="chatPage">
-          <div class="chat-header">
-            <div class="chat-title-group">
-              <div class="chat-title-row">
-                <h3 id="chatTitle">Select a conversation</h3>
-                <button id="addRoomMemberBtn" class="ghost small hidden">+ Add member</button>
-              </div>
-              <p id="chatMembers"></p>
-            </div>
-            <div class="chat-controls">
-              <span id="connectionState" class="status offline">Offline</span>
-              <label class="chat-audio-control" for="chatVolume">
-                <span>Volume</span>
-                <input type="range" id="chatVolume" min="0" max="100" value="70" />
-              </label>
-            </div>
-          </div>
-          <p id="typingIndicator" class="typing-indicator hidden"></p>
-          <p id="thinkingIndicator" class="thinking-indicator hidden"></p>
-          <div id="messageList" class="message-list"></div>
-          <form id="messageForm" class="message-form">
-            <textarea id="messageInput" rows="2" placeholder="Write a secure message…" required></textarea>
-            <button type="submit">Send</button>
-          </form>
-        </main>
-        <section class="profile-panel hidden" id="profilePage">
-          <div class="profile-card">
-            <h3>Profile</h3>
-            <form id="profileForm">
-              <label>
-                Display name
-                <input name="displayName" type="text" required />
-              </label>
-              <label>
-                Bio
-                <textarea name="bio" rows="3" maxlength="500" placeholder="Tell people about yourself"></textarea>
-              </label>
-              <label>
-                Birthday
-                <input name="birthday" type="date" />
-              </label>
-              <div class="profile-preferences">
-                <label>
-                  Theme
-                  <select name="profileTheme">
-                    <option value="light">Light</option>
-                    <option value="dark">Dark</option>
-                  </select>
-                </label>
-                <label>
-                  Accent color
-                  <input name="accentColor" type="color" value="#2563eb" />
-                </label>
-              </div>
-              <div class="presence-settings">
-                <label>
-                  Presence status
-                  <select name="presenceStatus" id="presenceStatusSelect">
-                    <option value="online">Online</option>
-                    <option value="idle">Idle</option>
-                    <option value="away">Away</option>
-                    <option value="dnd">Do Not Disturb</option>
-                    <option value="offline">Offline</option>
-                  </select>
-                </label>
-                <label>
-                  Idle timeout (minutes)
-                  <input
-                    id="idleTimeoutInput"
-                    name="idleTimeoutMinutes"
-                    type="number"
-                    min="1"
-                    max="240"
-                    value="5"
-                  />
-                </label>
-              </div>
-              <div class="media-upload-grid">
-                <div class="media-upload">
-                  <div class="media-upload-header">
-                    <h4>Profile photo</h4>
-                    <p class="muted">Shown on your profile card</p>
-                  </div>
-                  <img
-                    id="profilePhotoPreview"
-                    class="media-preview placeholder"
-                    src="/assets/avatars/avatar-blue.svg"
-                    alt="Profile photo preview"
-                  />
-                  <label class="file-input">
-                    <span>Upload JPEG or PNG (max 2 MB)</span>
-                    <input id="profilePhotoUpload" type="file" accept="image/png,image/jpeg" />
-                  </label>
-                  <input type="hidden" name="profilePhotoUrl" id="profilePhotoUrlField" />
-                </div>
-                <div class="media-upload">
-                  <div class="media-upload-header">
-                    <h4>Avatar</h4>
-                    <p class="muted">Used across conversations</p>
-                  </div>
-                  <img
-                    id="avatarPreview"
-                    class="media-preview placeholder"
-                    src="/assets/avatars/avatar-blue.svg"
-                    alt="Avatar preview"
-                  />
-                  <label class="file-input">
-                    <span>Upload JPEG or PNG (max 2 MB)</span>
-                    <input id="avatarUpload" type="file" accept="image/png,image/jpeg" />
-                  </label>
-                  <input type="hidden" name="avatarUrl" id="avatarUrlField" />
+
+          <!-- Direct Messages Panel -->
+          <details class="direct-messages-panel" open>
+            <summary>
+              <div class="panel-header">
+                <h3>Direct Messages</h3>
+                <div class="panel-actions">
+                  <button id="newDmBtn" class="ghost small">+ DM</button>
+                  <button id="refreshConversations" class="ghost small" title="Refresh">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <polyline points="23 4 23 10 17 10"/>
+                      <polyline points="1 20 1 14 7 14"/>
+                      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+                    </svg>
+                  </button>
                 </div>
               </div>
-              <div class="avatar-selector">
-                <p>Pick a preset or keep your uploaded avatar</p>
-                <div id="avatarChoices" class="avatar-grid"></div>
+            </summary>
+            <div id="conversationList" class="conversation-list"></div>
+          </details>
+        </aside>
+
+        <!-- Main Column -->
+        <section class="main-column">
+          <!-- Approvals Toolbar -->
+          <div id="approvalsPanel" class="approvals-toolbar hidden">
+            <div class="approvals-info">
+              <div class="approvals-title">
+                <span>Approvals</span>
+                <span id="approvalsAlertBadge" class="approvals-alert hidden">New</span>
               </div>
-              <div id="managerTokenGroup" class="manager-token hidden">
-                <label>
-                  Approval token
-                  <input
-                    name="managerToken"
-                    type="text"
-                    minlength="32"
-                    maxlength="32"
-                    placeholder="32-character token"
-                  />
+              <div class="approvals-counts">
+                <span id="incomingApprovalCount" class="approval-pill">In: 0</span>
+                <span id="outgoingApprovalCount" class="approval-pill">Out: 0</span>
+              </div>
+            </div>
+            <div class="approvals-actions">
+              <button id="newApprovalBtn" class="ghost small" title="Request approval">Request</button>
+              <button id="reviewApprovalsBtn" class="ghost small" title="Review">Review</button>
+              <button id="refreshApprovals" class="ghost small" title="Refresh">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="23 4 23 10 17 10"/>
+                  <polyline points="1 20 1 14 7 14"/>
+                  <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <!-- View Tabs -->
+          <div class="view-tabs">
+            <button id="tabChat" class="active" data-view="chat">Chat</button>
+            <button id="tabProfile" data-view="profile">Profile</button>
+          </div>
+
+          <!-- Chat Panel -->
+          <main class="chat-panel" id="chatPage">
+            <div class="chat-header">
+              <div class="chat-title-group">
+                <div class="chat-title-row">
+                  <h3 id="chatTitle">Select a conversation</h3>
+                  <button id="addRoomMemberBtn" class="ghost small hidden">+ Add</button>
+                </div>
+                <p id="chatMembers"></p>
+              </div>
+              <div class="chat-controls">
+                <span id="connectionState" class="status offline">Offline</span>
+                <label class="chat-audio-control">
+                  <span>Vol</span>
+                  <input type="range" id="chatVolume" min="0" max="100" value="70" />
                 </label>
-                <p class="muted token-note">Shared with requestors when you approve their access.</p>
               </div>
-              <button type="submit" class="primary">Save profile</button>
+            </div>
+            <p id="typingIndicator" class="typing-indicator hidden"></p>
+            <p id="thinkingIndicator" class="thinking-indicator hidden"></p>
+            <div id="messageList" class="message-list"></div>
+            <form id="messageForm" class="message-form">
+              <textarea id="messageInput" rows="1" placeholder="Type a message..." required></textarea>
+              <button type="submit">Send</button>
             </form>
-          </div>
-          <div class="profile-card">
-            <h3>Reset password</h3>
-            <form id="passwordForm">
-              <label>
-                Current password
-                <input name="currentPassword" type="password" required minlength="8" />
-              </label>
-              <label>
-                New password
-                <input name="newPassword" type="password" required minlength="8" />
-              </label>
-              <button type="submit">Update password</button>
-            </form>
-          </div>
+          </main>
+
+          <!-- Profile Panel -->
+          <section class="profile-panel hidden" id="profilePage">
+            <div class="profile-card">
+              <h3>Profile</h3>
+              <form id="profileForm">
+                <label>
+                  Display name
+                  <input name="displayName" type="text" required />
+                </label>
+                <label>
+                  Bio
+                  <textarea name="bio" rows="3" maxlength="500" placeholder="About you..."></textarea>
+                </label>
+                <label>
+                  Birthday
+                  <input name="birthday" type="date" />
+                </label>
+                <div class="profile-preferences">
+                  <label>
+                    Theme
+                    <select name="profileTheme">
+                      <option value="light">Light</option>
+                      <option value="dark">Dark</option>
+                    </select>
+                  </label>
+                  <label>
+                    Accent
+                    <input name="accentColor" type="color" value="#2563eb" />
+                  </label>
+                </div>
+                <div class="presence-settings">
+                  <label>
+                    Status
+                    <select name="presenceStatus" id="presenceStatusSelect">
+                      <option value="online">Online</option>
+                      <option value="idle">Idle</option>
+                      <option value="away">Away</option>
+                      <option value="dnd">Do Not Disturb</option>
+                      <option value="offline">Offline</option>
+                    </select>
+                  </label>
+                  <label>
+                    Idle timeout (min)
+                    <input id="idleTimeoutInput" name="idleTimeoutMinutes" type="number" min="1" max="240" value="5" />
+                  </label>
+                </div>
+                <div class="media-upload-grid">
+                  <div class="media-upload">
+                    <div class="media-upload-header">
+                      <h4>Profile photo</h4>
+                      <p class="muted small">For your profile</p>
+                    </div>
+                    <img id="profilePhotoPreview" class="media-preview placeholder" src="/assets/avatars/avatar-blue.svg" alt="Profile photo" />
+                    <label class="file-input">
+                      <span>JPEG/PNG, max 2MB</span>
+                      <input id="profilePhotoUpload" type="file" accept="image/png,image/jpeg" />
+                    </label>
+                    <input type="hidden" name="profilePhotoUrl" id="profilePhotoUrlField" />
+                  </div>
+                  <div class="media-upload">
+                    <div class="media-upload-header">
+                      <h4>Avatar</h4>
+                      <p class="muted small">For messages</p>
+                    </div>
+                    <img id="avatarPreview" class="media-preview placeholder" src="/assets/avatars/avatar-blue.svg" alt="Avatar" />
+                    <label class="file-input">
+                      <span>JPEG/PNG, max 2MB</span>
+                      <input id="avatarUpload" type="file" accept="image/png,image/jpeg" />
+                    </label>
+                    <input type="hidden" name="avatarUrl" id="avatarUrlField" />
+                  </div>
+                </div>
+                <div class="avatar-selector">
+                  <p>Or pick a preset:</p>
+                  <div id="avatarChoices" class="avatar-grid"></div>
+                </div>
+                <div id="managerTokenGroup" class="manager-token hidden">
+                  <label>
+                    Approval token
+                    <input name="managerToken" type="text" minlength="32" maxlength="32" placeholder="32-character token" />
+                  </label>
+                  <p class="muted small token-note">Shared when you approve access.</p>
+                </div>
+                <button type="submit" class="primary">Save profile</button>
+              </form>
+            </div>
+            <div class="profile-card">
+              <h3>Password</h3>
+              <form id="passwordForm">
+                <label>
+                  Current password
+                  <input name="currentPassword" type="password" required minlength="8" />
+                </label>
+                <label>
+                  New password
+                  <input name="newPassword" type="password" required minlength="8" />
+                </label>
+                <button type="submit">Update password</button>
+              </form>
+            </div>
+          </section>
         </section>
-      </section>
-    </div>
+      </div>
     </main>
 
     <footer class="page-footer" id="appFooter">
       <div class="footer-content">
-        <p>Secure Chat Platform</p>
-        <a id="adminLink" class="admin-link hidden" href="/admin.html" target="_blank" rel="noopener"
-          >Admin Console</a
-        >
+        <p>Secure Chat</p>
+        <a id="adminLink" class="admin-link hidden" href="/admin.html" target="_blank" rel="noopener">Admin</a>
       </div>
     </footer>
 

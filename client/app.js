@@ -61,6 +61,11 @@ const el = {
   currentUserRole: document.getElementById('currentUserRole'),
   currentUserAvatar: document.getElementById('currentUserAvatar'),
   currentUserPresence: document.getElementById('currentUserPresence'),
+  mobileUserAvatar: document.getElementById('mobileUserAvatar'),
+  menuToggle: document.getElementById('menuToggle'),
+  closeSidebar: document.getElementById('closeSidebar'),
+  sidebar: document.getElementById('sidebar'),
+  sidebarBackdrop: document.getElementById('sidebarBackdrop'),
   logoutBtn: document.getElementById('logoutBtn'),
   openProfile: document.getElementById('openProfile'),
   conversationList: document.getElementById('conversationList'),
@@ -197,44 +202,39 @@ function renderPlainTextContent(text = '') {
   return blocks.map((block) => `<p>${block || '&nbsp;'}</p>`).join('');
 }
 
-function renderMarkdownContent(text = '') {
-  const escaped = escapeHtml(text);
-  const withBlocks = escaped.replace(/```([\s\S]+?)```/g, (match, code) => {
-    const normalized = code.replace(/^\n+|\n+$/g, '');
-    return `\n\n<pre><code>${normalized}</code></pre>\n\n`;
+// Configure marked.js for safe rendering
+if (typeof marked !== 'undefined') {
+  marked.setOptions({
+    breaks: true,
+    gfm: true,
+    headerIds: false,
+    mangle: false
   });
-  const withInlineCode = withBlocks.replace(/`([^`]+)`/g, '<code>$1</code>');
-  const withBold = withInlineCode
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/__(.+?)__/g, '<strong>$1</strong>');
-  const withItalics = withBold
-    .replace(/(^|[\s>])\*(.+?)\*(?=[\s<]|$)/g, (_, prefix, value) => `${prefix}<em>${value}</em>`)
-    .replace(/(^|[\s>])_(.+?)_(?=[\s<]|$)/g, (_, prefix, value) => `${prefix}<em>${value}</em>`);
-  const withStrike = withItalics.replace(/~~(.+?)~~/g, '<del>$1</del>');
-  const withLinks = withStrike.replace(
-    /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
-    (match, label, href) => {
-      const decodedUrl = decodeEntities(href);
-      const safeUrl = sanitizeUrl(decodedUrl);
-      if (!safeUrl) {
-        return label;
+}
+
+function renderMarkdownContent(text = '') {
+  if (typeof marked === 'undefined') {
+    // Fallback if marked.js not loaded
+    return renderPlainTextContent(text);
+  }
+  try {
+    // Use marked.js to parse markdown
+    const html = marked.parse(text);
+    // Sanitize links to ensure they use safe protocols
+    return html.replace(
+      /<a\s+href="([^"]*)"([^>]*)>/g,
+      (match, href, rest) => {
+        const safeUrl = sanitizeUrl(href);
+        if (!safeUrl) {
+          return '<a' + rest + '>';
+        }
+        return `<a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener"${rest}>`;
       }
-      return `<a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener">${label}</a>`;
-    }
-  );
-  const segments = withLinks.split(/\n{2,}/).map((segment) => segment.replace(/\n/g, '<br />'));
-  return segments
-    .map((segment) => {
-      if (!segment) {
-        return '<p>&nbsp;</p>';
-      }
-      const trimmed = segment.trim();
-      if (trimmed.startsWith('<pre><code>') && trimmed.endsWith('</code></pre>')) {
-        return trimmed;
-      }
-      return `<p>${segment}</p>`;
-    })
-    .join('');
+    );
+  } catch (err) {
+    // Fallback on error
+    return renderPlainTextContent(text);
+  }
 }
 
 function renderMessageContent(message) {
@@ -738,6 +738,9 @@ function updateUserCard() {
   el.currentUserName.textContent = state.user.displayName;
   el.currentUserRole.innerHTML = `@${escapeHtml(state.user.username)} ${renderRoleBadge(state.user.role)}`;
   el.currentUserAvatar.src = resolveAvatar(state.user.avatarUrl, state.user.profilePhotoUrl);
+  if (el.mobileUserAvatar) {
+    el.mobileUserAvatar.src = resolveAvatar(state.user.avatarUrl, state.user.profilePhotoUrl);
+  }
   updatePresenceBadge(state.user.presenceStatus);
   if (el.dndToggle) {
     const dndActive = state.user.presenceStatus === 'dnd';
@@ -775,6 +778,8 @@ function setView(view) {
   if (view === 'profile') {
     loadProfile(true);
   }
+  // Close sidebar on mobile when view changes
+  closeSidebar();
 }
 
 function populateAvatarChoices() {
@@ -997,6 +1002,7 @@ function logout() {
   }
   clearApprovalsAlert();
   renderApprovalsPanel();
+  closeSidebar();
 }
 
 async function loadConversations() {
@@ -1328,6 +1334,8 @@ function setActiveConversation(conversationId, options = {}) {
   renderTypingIndicator();
   renderThinkingIndicator();
   loadMessages(conversationId);
+  // Close sidebar on mobile when conversation is selected
+  closeSidebar();
 }
 
 async function activateRoomSelection(roomId) {
@@ -2478,7 +2486,39 @@ async function handlePasswordChange(event) {
   }
 }
 
+// Mobile sidebar toggle functions
+function openSidebar() {
+  if (el.sidebar) {
+    el.sidebar.classList.add('open');
+  }
+  if (el.sidebarBackdrop) {
+    el.sidebarBackdrop.classList.add('visible');
+  }
+  document.body.style.overflow = 'hidden';
+}
+
+function closeSidebar() {
+  if (el.sidebar) {
+    el.sidebar.classList.remove('open');
+  }
+  if (el.sidebarBackdrop) {
+    el.sidebarBackdrop.classList.remove('visible');
+  }
+  document.body.style.overflow = '';
+}
+
 function wireEvents() {
+  // Mobile navigation
+  if (el.menuToggle) {
+    el.menuToggle.addEventListener('click', openSidebar);
+  }
+  if (el.closeSidebar) {
+    el.closeSidebar.addEventListener('click', closeSidebar);
+  }
+  if (el.sidebarBackdrop) {
+    el.sidebarBackdrop.addEventListener('click', closeSidebar);
+  }
+
   el.loginForm.addEventListener('submit', handleLogin);
   el.registerForm.addEventListener('submit', handleRegister);
   el.logoutBtn.addEventListener('click', logout);

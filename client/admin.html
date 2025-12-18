@@ -2,24 +2,31 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Secure Chat – Admin Console</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#faf8f5" />
+    <title>Admin Console - Secure Chat</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body class="admin-page">
     <header class="admin-header">
       <div>
-        <h1>Secure Chat</h1>
-        <p class="tagline">Administration console</p>
+        <h1>Admin Console</h1>
+        <p class="tagline">Secure Chat administration</p>
       </div>
       <div class="admin-header-actions">
-        <a class="ghost" href="/">Back to chat</a>
+        <a class="ghost" href="/">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 4px; vertical-align: -2px;">
+            <line x1="19" y1="12" x2="5" y2="12"/>
+            <polyline points="12 19 5 12 12 5"/>
+          </svg>
+          Back to chat
+        </a>
       </div>
     </header>
 
     <div id="adminAuthWarning" class="admin-warning hidden">
-      <p>You must sign in with an administrator or moderator account to use this console.</p>
-      <p class="muted">Return to the main client, sign in, then relaunch the admin console.</p>
+      <p>Sign in with an admin or moderator account to access this console.</p>
+      <p class="muted small">Return to the main app, sign in, then come back.</p>
     </div>
 
     <main id="adminApp" class="admin-shell hidden">
@@ -27,38 +34,48 @@
         <button class="menu-btn active" data-panel-target="overview">Overview</button>
         <button class="menu-btn" data-panel-target="accounts">Accounts</button>
         <button class="menu-btn" data-panel-target="approvals">Approvals</button>
-        <button class="menu-btn hidden" data-panel-target="audit">Audit log</button>
-        <button id="refreshAdmin" class="ghost menu-refresh" title="Refresh data">↻ Refresh</button>
+        <button class="menu-btn hidden" data-panel-target="audit">Audit Log</button>
+        <button id="refreshAdmin" class="ghost menu-refresh" title="Refresh data">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="23 4 23 10 17 10"/>
+            <polyline points="1 20 1 14 7 14"/>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+          </svg>
+          Refresh
+        </button>
       </nav>
+
       <section class="admin-content">
+        <!-- Overview Panel -->
         <div class="admin-panel" data-panel="overview">
           <div class="panel-header">
-            <h2>Platform stats</h2>
-            <p class="muted small">Live totals for users, conversations, and messages</p>
+            <h2>Overview</h2>
+            <p class="muted small">Platform statistics</p>
           </div>
           <div id="adminStats" class="stats"></div>
-          <div class="admin-card subtle-card">
+          <div class="admin-card">
             <h3>Welcome</h3>
-            <p>Use the navigation menu to switch between administrative tasks without leaving this console.</p>
-            <p class="muted small">Stats refresh automatically or via the refresh button.</p>
+            <p>Use the navigation to manage users, review approvals, and monitor activity.</p>
           </div>
         </div>
 
+        <!-- Accounts Panel -->
         <div class="admin-panel hidden" data-panel="accounts">
           <div class="panel-header panel-header-with-action">
             <div>
               <h2>User Directory</h2>
-              <p class="muted small">Manage user accounts and profiles</p>
+              <p class="muted small">Manage accounts and profiles</p>
             </div>
             <button id="addUserBtn" class="add-user-btn" title="Create new user">+</button>
           </div>
-          <div id="adminUsers" class="admin-users admin-scroll full-height"></div>
+          <div id="adminUsers" class="admin-users admin-scroll"></div>
         </div>
 
+        <!-- Approvals Panel -->
         <div class="admin-panel hidden" data-panel="approvals">
           <div class="panel-header">
             <h2>Approvals</h2>
-            <p class="muted small">Review and respond to approval requests</p>
+            <p class="muted small">Review and respond to requests</p>
           </div>
           <div class="approval-panel">
             <div class="approval-columns">
@@ -74,10 +91,11 @@
           </div>
         </div>
 
+        <!-- Audit Log Panel -->
         <div id="auditPanel" class="admin-panel hidden" data-panel="audit">
           <div class="panel-header">
-            <h2>Audit log</h2>
-            <p class="muted small">Administrator visibility only</p>
+            <h2>Audit Log</h2>
+            <p class="muted small">Admin-only visibility</p>
           </div>
           <div id="adminAuditLogs" class="admin-users admin-scroll"></div>
         </div>
