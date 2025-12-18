@@ -12,6 +12,50 @@ Modern messaging stack with role-aware administration, REST + WebSocket APIs, an
 - Channel moderator role with limited powers (disable accounts, reset passwords, review stats) plus visual badges across the UI.
 - Peer approval workflow so one user can request authorization from another (ask + approve/deny).
 - MariaDB-backed persistence (no more JSON files) for production-ready storage.
+- Markdown support in messages with full GFM rendering (code blocks, tables, lists, etc.).
+
+## Security
+
+The server implements authentication security best practices:
+
+### Password Policy
+
+All passwords must meet these requirements:
+- Minimum 8 characters
+- At least one uppercase letter
+- At least one lowercase letter
+- At least one number
+- At least one special character (`!@#$%^&*()` etc.)
+- Not in the common password blacklist
+
+### Account Lockout
+
+Failed login attempts are tracked per username:
+- **5 failed attempts** triggers a temporary lockout
+- **15 minute** lockout duration
+- Lockout clears automatically after the timeout
+- Successful login resets the failure counter
+
+### Token Security
+
+- **JWT_SECRET required in production** - server refuses to start without it
+- Default token lifetime: **2 hours** (configurable via `JWT_EXPIRES_IN`)
+- Logout endpoint (`POST /api/auth/logout`) blacklists tokens server-side
+- Blacklisted tokens are rejected immediately
+- Bcrypt with **12 rounds** for password hashing
+
+### Rate Limiting
+
+- Login: 10 requests per minute per IP
+- Registration: 5 requests per minute per IP
+
+### Environment Variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `JWT_SECRET` | **Production** | `local-dev-secret` | Secret for signing JWTs. Must be set in production. |
+| `JWT_EXPIRES_IN` | No | `2h` | Token expiration time (e.g., `2h`, `1d`) |
+| `ADMIN_PASSWORD` | No | `ChangeMe!23` | Initial admin password (must meet complexity requirements) |
 
 ## Getting Started
 
@@ -89,6 +133,7 @@ Default seeded admin:
 
 - `POST /api/auth/register` – create a user account.
 - `POST /api/auth/login` – exchange credentials for a JWT.
+- `POST /api/auth/logout` – invalidate current token (requires auth).
 - `GET /api/auth/me` – fetch current profile.
 - `GET /api/conversations` – list joined threads.
 - `POST /api/conversations/direct` – open/find a DM with another user.
