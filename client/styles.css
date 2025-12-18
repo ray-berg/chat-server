@@ -401,23 +401,17 @@ button.icon-btn:hover:not(:disabled) {
 .auth-forms {
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
+  gap: var(--space-3);
   width: 100%;
-  max-width: 320px;
+  max-width: 360px;
 }
 
 .auth-forms form {
   background: var(--color-surface);
   border: var(--border-width) solid var(--color-border);
   border-radius: var(--border-radius-lg);
-  padding: var(--space-4);
+  padding: var(--space-5);
   text-align: left;
-}
-
-.auth-forms h2 {
-  margin-bottom: var(--space-3);
-  padding-bottom: var(--space-2);
-  border-bottom: var(--border-width) solid var(--color-border-light);
 }
 
 .auth-forms label {
@@ -426,18 +420,22 @@ button.icon-btn:hover:not(:disabled) {
 
 .auth-forms button {
   width: 100%;
-  margin-top: var(--space-2);
+  margin-top: var(--space-3);
 }
 
-@media (min-width: 640px) {
-  .auth-forms {
-    flex-direction: row;
-    max-width: 680px;
-  }
+.auth-link {
+  color: var(--color-text-secondary);
+  font-size: 0.9em;
+}
 
-  .auth-forms form {
-    flex: 1;
-  }
+.auth-link a {
+  color: var(--color-accent);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.auth-link a:hover {
+  text-decoration: underline;
 }
 
 /* --------------------------------------------------------------------------
@@ -1199,18 +1197,22 @@ button.icon-btn:hover:not(:disabled) {
 .message-content code {
   background: var(--color-surface-alt);
   border: var(--border-width) solid var(--color-border-light);
-  padding: 1px var(--space-1);
+  padding: 2px 6px;
   border-radius: var(--border-radius-sm);
-  font-size: 0.9em;
+  font-family: 'SF Mono', 'Monaco', 'Menlo', 'Consolas', monospace;
+  font-size: 0.875em;
 }
 
 .message-content pre {
-  background: var(--color-border);
-  color: var(--color-surface);
-  padding: var(--space-2) var(--space-3);
+  background: #1e293b;
+  color: #e2e8f0;
+  padding: var(--space-3);
   border-radius: var(--border-radius);
   overflow-x: auto;
   margin: var(--space-2) 0;
+  font-family: 'SF Mono', 'Monaco', 'Menlo', 'Consolas', monospace;
+  font-size: 0.875em;
+  line-height: 1.5;
 }
 
 .message-content pre code {
@@ -1218,13 +1220,20 @@ button.icon-btn:hover:not(:disabled) {
   border: none;
   padding: 0;
   color: inherit;
+  font-size: inherit;
 }
 
 .message-content blockquote {
-  border-left: 3px solid var(--color-border);
+  border-left: 3px solid var(--color-accent);
   margin: var(--space-2) 0;
-  padding-left: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface-alt);
+  border-radius: 0 var(--border-radius-sm) var(--border-radius-sm) 0;
   color: var(--color-text-secondary);
+}
+
+.message-content blockquote p {
+  margin: 0;
 }
 
 .message-content ul, .message-content ol {
@@ -1232,8 +1241,76 @@ button.icon-btn:hover:not(:disabled) {
   padding-left: var(--space-4);
 }
 
+.message-content li {
+  margin: var(--space-1) 0;
+}
+
 .message-content a {
   color: var(--color-accent);
+  text-decoration: underline;
+}
+
+.message-content a:hover {
+  color: var(--color-accent-hover);
+}
+
+.message-content h1,
+.message-content h2,
+.message-content h3,
+.message-content h4,
+.message-content h5,
+.message-content h6 {
+  margin: var(--space-3) 0 var(--space-2) 0;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.message-content h1:first-child,
+.message-content h2:first-child,
+.message-content h3:first-child {
+  margin-top: 0;
+}
+
+.message-content h1 { font-size: 1.5em; }
+.message-content h2 { font-size: 1.3em; }
+.message-content h3 { font-size: 1.15em; }
+.message-content h4 { font-size: 1em; }
+.message-content h5 { font-size: 0.95em; }
+.message-content h6 { font-size: 0.9em; color: var(--color-text-secondary); }
+
+.message-content hr {
+  border: none;
+  border-top: var(--border-width) solid var(--color-border-light);
+  margin: var(--space-3) 0;
+}
+
+.message-content table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: var(--space-2) 0;
+  font-size: 0.9em;
+}
+
+.message-content th,
+.message-content td {
+  border: var(--border-width) solid var(--color-border-light);
+  padding: var(--space-2);
+  text-align: left;
+}
+
+.message-content th {
+  background: var(--color-surface-alt);
+  font-weight: 600;
+}
+
+.message-content img {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--border-radius);
+}
+
+.message-content input[type="checkbox"] {
+  margin-right: var(--space-1);
 }
 
 .message-status {
@@ -1277,6 +1354,37 @@ button.icon-btn:hover:not(:disabled) {
 
 .message-form button {
   flex-shrink: 0;
+}
+
+.markdown-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  background: var(--color-surface);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--border-radius);
+  color: var(--color-muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.markdown-toggle:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text);
+}
+
+.markdown-toggle.active {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: white;
+}
+
+.markdown-toggle svg {
+  width: 16px;
+  height: 16px;
 }
 
 /* Profile Panel */

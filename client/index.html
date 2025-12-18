@@ -12,13 +12,12 @@
   </head>
   <body>
     <main class="main-shell">
-      <!-- Auth Panel (Login/Register) -->
+      <!-- Auth Panel (Login) -->
       <div class="auth-panel" id="authPanel">
         <h1>Secure Chat</h1>
         <p class="tagline">Simple, secure messaging.</p>
         <div class="auth-forms">
           <form id="loginForm" method="post" action="/api/auth/login" autocomplete="on">
-            <h2>Sign in</h2>
             <label>
               Username
               <input name="username" type="text" autocomplete="username" required />
@@ -27,24 +26,9 @@
               Password
               <input name="password" type="password" autocomplete="current-password" required />
             </label>
-            <button type="submit">Log in</button>
+            <button type="submit">Sign in</button>
           </form>
-          <form id="registerForm" method="post" action="/api/auth/register" autocomplete="on">
-            <h2>Create account</h2>
-            <label>
-              Display name
-              <input name="displayName" type="text" autocomplete="nickname" required />
-            </label>
-            <label>
-              Username
-              <input name="username" type="text" autocomplete="username" required />
-            </label>
-            <label>
-              Password
-              <input name="password" type="password" autocomplete="new-password" required />
-            </label>
-            <button type="submit">Register</button>
-          </form>
+          <p class="auth-link">Don't have an account? <a href="/register.html">Create one</a></p>
         </div>
       </div>
 
@@ -196,6 +180,13 @@
             <div id="messageList" class="message-list"></div>
             <form id="messageForm" class="message-form">
               <textarea id="messageInput" rows="1" placeholder="Type a message..." required></textarea>
+              <button type="button" id="markdownToggle" class="markdown-toggle" title="Toggle Markdown">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M3 5h18v14H3z"/>
+                  <path d="M7 15V9l2.5 3L12 9v6"/>
+                  <path d="M17 12h-4l2.5-3v6"/>
+                </svg>
+              </button>
               <button type="submit">Send</button>
             </form>
           </main>

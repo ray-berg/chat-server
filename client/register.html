@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#faf8f5" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <title>Create Account - Secure Chat</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="main-shell">
+      <div class="auth-panel" id="authPanel">
+        <h1>Secure Chat</h1>
+        <p class="tagline">Create your account</p>
+        <div class="auth-forms">
+          <form id="registerForm" method="post" action="/api/auth/register" autocomplete="on">
+            <label>
+              Display name
+              <input name="displayName" type="text" autocomplete="nickname" required />
+            </label>
+            <label>
+              Username
+              <input name="username" type="text" autocomplete="username" required />
+            </label>
+            <label>
+              Password
+              <input name="password" type="password" autocomplete="new-password" required minlength="8" />
+            </label>
+            <button type="submit">Create account</button>
+          </form>
+          <p class="auth-link">Already have an account? <a href="/">Sign in</a></p>
+        </div>
+      </div>
+    </main>
+
+    <footer class="page-footer">
+      <div class="footer-content">
+        <p>Secure Chat</p>
+      </div>
+    </footer>
+
+    <div id="toast" class="toast hidden"></div>
+    <script>
+      (function() {
+        // Check if already logged in
+        const token = localStorage.getItem('chat_token');
+        if (token) {
+          window.location.href = '/';
+          return;
+        }
+
+        const form = document.getElementById('registerForm');
+        const toast = document.getElementById('toast');
+
+        function showToast(message, variant = 'info') {
+          toast.textContent = message;
+          toast.className = 'toast ' + variant;
+          toast.classList.remove('hidden');
+          setTimeout(() => toast.classList.add('hidden'), 4000);
+        }
+
+        form.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          const formData = new FormData(form);
+          const data = {
+            displayName: formData.get('displayName'),
+            username: formData.get('username'),
+            password: formData.get('password')
+          };
+
+          try {
+            const res = await fetch('/api/auth/register', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(data)
+            });
+            const result = await res.json();
+            if (!res.ok) {
+              throw new Error(result.error || 'Registration failed');
+            }
+            // Save token and redirect
+            localStorage.setItem('chat_token', result.token);
+            showToast('Account created! Redirecting...', 'success');
+            setTimeout(() => {
+              window.location.href = '/';
+            }, 1000);
+          } catch (err) {
+            showToast(err.message, 'error');
+          }
+        });
+      })();
+    </script>
+  </body>
+</html>

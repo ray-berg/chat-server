@@ -54,6 +54,7 @@ const state = {
   view: 'chat',
   hiddenConversations: loadHiddenConversations(),
   showHiddenConversations: false,
+  markdownMode: false,
   serverInstanceId: null
 };
 
@@ -68,7 +69,6 @@ const el = {
   authPanel: document.getElementById('authPanel'),
   chatApp: document.getElementById('chatApp'),
   loginForm: document.getElementById('loginForm'),
-  registerForm: document.getElementById('registerForm'),
   currentUserName: document.getElementById('currentUserName'),
   currentUserRole: document.getElementById('currentUserRole'),
   currentUserAvatar: document.getElementById('currentUserAvatar'),
@@ -89,6 +89,7 @@ const el = {
   messageList: document.getElementById('messageList'),
   messageForm: document.getElementById('messageForm'),
   messageInput: document.getElementById('messageInput'),
+  markdownToggle: document.getElementById('markdownToggle'),
   userSearch: document.getElementById('userSearch'),
   userResults: document.getElementById('userResults'),
   connectionState: document.getElementById('connectionState'),
@@ -932,31 +933,6 @@ async function handleLogin(event) {
   }
 }
 
-async function handleRegister(event) {
-  event.preventDefault();
-  const form = new FormData(event.target);
-  try {
-    const res = await fetch('/api/auth/register', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        username: form.get('username'),
-        password: form.get('password'),
-        displayName: form.get('displayName')
-      })
-    }).then(async (resp) => {
-      if (!resp.ok) {
-        const body = await resp.json().catch(() => ({}));
-        throw new Error(body.error || 'Registration failed');
-      }
-      return resp.json();
-    });
-    await bootstrapSession(res.token, res.user);
-  } catch (error) {
-    showToast(error.message || 'Unable to register', 'error');
-  }
-}
-
 async function bootstrapSession(token, user) {
   setToken(token);
   state.user = user;
@@ -1540,10 +1516,11 @@ async function handleMessageSend(event) {
   if (!content) return;
   const conversationId = state.activeConversationId;
   const tempId = `local-${Date.now()}`;
+  const format = state.markdownMode ? 'markdown' : 'text';
   const optimisticMessage = {
     id: tempId,
     content,
-    format: 'text',
+    format,
     createdAt: new Date().toISOString(),
     userId: state.user.id,
     displayName: state.user.displayName || state.user.username,
@@ -1559,7 +1536,7 @@ async function handleMessageSend(event) {
   try {
     const res = await authFetch(`/api/conversations/${conversationId}/messages`, {
       method: 'POST',
-      body: JSON.stringify({ content, format: 'text' })
+      body: JSON.stringify({ content, format })
     });
     finalizeOptimisticMessage(conversationId, tempId, res.message);
   } catch (error) {
@@ -2581,7 +2558,6 @@ function wireEvents() {
   }
 
   el.loginForm.addEventListener('submit', handleLogin);
-  el.registerForm.addEventListener('submit', handleRegister);
   el.logoutBtn.addEventListener('click', logout);
   el.messageForm.addEventListener('submit', handleMessageSend);
   if (el.messageInput) {
@@ -2593,6 +2569,14 @@ function wireEvents() {
     });
     el.messageInput.addEventListener('input', notifyTypingActivity);
     el.messageInput.addEventListener('blur', () => resetSelfTyping());
+  }
+  if (el.markdownToggle) {
+    el.markdownToggle.addEventListener('click', () => {
+      state.markdownMode = !state.markdownMode;
+      el.markdownToggle.classList.toggle('active', state.markdownMode);
+      el.markdownToggle.title = state.markdownMode ? 'Markdown enabled' : 'Toggle Markdown';
+      el.messageInput.placeholder = state.markdownMode ? 'Type markdown...' : 'Type a message...';
+    });
   }
   el.userSearch.addEventListener('input', handleUserSearch);
   el.userResults.addEventListener('click', (event) => {
