@@ -11,6 +11,9 @@ const {
   updateUserPresence
 } = require('./db');
 
+// Server instance ID - changes on each restart
+const SERVER_INSTANCE_ID = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+
 const clients = new Map(); // userId -> Set<ws>
 
 function registerClient(userId, socket) {
@@ -84,7 +87,7 @@ function setupWebsocket(server) {
     registerClient(user.id, socket);
     await updateUserPresence(user.id, 'online');
     const conversations = await listConversationsForUser(user.id);
-    socket.send(JSON.stringify({ type: 'ready', user, conversations }));
+    socket.send(JSON.stringify({ type: 'ready', user, conversations, serverInstanceId: SERVER_INSTANCE_ID }));
 
     socket.on('message', async (raw) => {
       try {

@@ -24,6 +24,15 @@ const DEFAULT_CHAT_VOLUME = 0.7;
 const storedVolume = Number(localStorage.getItem('chat_volume'));
 const initialVolume = Number.isFinite(storedVolume) ? Math.min(1, Math.max(0, storedVolume)) : DEFAULT_CHAT_VOLUME;
 
+function loadHiddenConversations() {
+  try {
+    const stored = localStorage.getItem('hidden_conversations');
+    return stored ? new Set(JSON.parse(stored)) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
 const state = {
   token: localStorage.getItem('chat_token'),
   user: null,
@@ -42,7 +51,10 @@ const state = {
   thinking: new Map(),
   botReadReceipts: new Map(), // conversationId -> { oderId, messageId }
   chatVolume: initialVolume,
-  view: 'chat'
+  view: 'chat',
+  hiddenConversations: loadHiddenConversations(),
+  showHiddenConversations: false,
+  serverInstanceId: null
 };
 
 const ROLE_LABELS = {
@@ -1106,13 +1118,44 @@ async function loadProfile(silent = false) {
   }
 }
 
+function saveHiddenConversations() {
+  try {
+    localStorage.setItem('hidden_conversations', JSON.stringify([...state.hiddenConversations]));
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+function hideConversation(conversationId) {
+  state.hiddenConversations.add(conversationId);
+  saveHiddenConversations();
+  renderConversationList();
+  showToast('Conversation hidden', 'info');
+}
+
+function unhideConversation(conversationId) {
+  state.hiddenConversations.delete(conversationId);
+  saveHiddenConversations();
+  renderConversationList();
+  showToast('Conversation restored', 'info');
+}
+
+function toggleShowHiddenConversations() {
+  state.showHiddenConversations = !state.showHiddenConversations;
+  renderConversationList();
+}
+
 function renderConversationList() {
   if (!state.user) {
     el.conversationList.innerHTML = '';
     return;
   }
   const threads = state.conversations.filter((conversation) => conversation.type !== 'room');
-  const list = threads
+  const hiddenCount = threads.filter((c) => state.hiddenConversations.has(c.id)).length;
+  const visibleThreads = state.showHiddenConversations
+    ? threads
+    : threads.filter((c) => !state.hiddenConversations.has(c.id));
+  const list = visibleThreads
     .slice()
     .sort((a, b) => {
       const aTime = new Date(a.lastMessageAt || a.createdAt).getTime();
@@ -1120,6 +1163,7 @@ function renderConversationList() {
       return bTime - aTime;
     })
     .map((conversation) => {
+      const isHidden = state.hiddenConversations.has(conversation.id);
       const peers = (conversation.members || []).filter((member) => member.id !== state.user.id);
       const target = conversation.type === 'direct' ? peers[0] : null;
       const title =
@@ -1136,8 +1180,12 @@ function renderConversationList() {
       const avatarUrl = resolveAvatar(avatarTarget?.avatarUrl, avatarTarget?.profilePhotoUrl);
       const presenceCls = target ? presenceClass(target.presenceStatus) : 'offline';
       const presenceText = target ? formatPresence(target.presenceStatus) : '';
+      const hideBtn = isHidden
+        ? `<button class="conversation-action unhide-dm" data-id="${conversation.id}" title="Show conversation">↩</button>`
+        : `<button class="conversation-action hide-dm" data-id="${conversation.id}" title="Hide conversation">✕</button>`;
+      const hiddenClass = isHidden ? ' hidden-conversation' : '';
       return `
-        <div class="conversation ${active}" data-id="${conversation.id}">
+        <div class="conversation ${active}${hiddenClass}" data-id="${conversation.id}">
           <img class="conversation-avatar" src="${avatarUrl}" alt="${escapeHtml(
         (avatarTarget && avatarTarget.displayName) || 'Conversation'
       )}" />
@@ -1146,11 +1194,17 @@ function renderConversationList() {
             <p>${escapeHtml(preview)}</p>
             ${target ? `<span class="presence-pill ${presenceCls}">${presenceText}</span>` : ''}
           </div>
+          ${hideBtn}
         </div>
       `;
     })
     .join('');
-  el.conversationList.innerHTML = list || '<p class="muted">No conversations yet.</p>';
+  const hiddenToggle = hiddenCount > 0
+    ? `<button class="toggle-hidden-btn ghost small" id="toggleHiddenDMs">${
+        state.showHiddenConversations ? 'Hide' : 'Show'
+      } ${hiddenCount} hidden</button>`
+    : '';
+  el.conversationList.innerHTML = (list || '<p class="muted">No conversations yet.</p>') + hiddenToggle;
 }
 
 function renderRoomList() {
@@ -1685,6 +1739,13 @@ function updateConnectionBadge(online) {
 function handleSocketPayload(payload) {
   switch (payload.type) {
     case 'ready':
+      // Check if server restarted - reload page to get fresh assets
+      if (state.serverInstanceId && payload.serverInstanceId && state.serverInstanceId !== payload.serverInstanceId) {
+        console.log('[ws] Server restarted, reloading page...');
+        window.location.reload();
+        return;
+      }
+      state.serverInstanceId = payload.serverInstanceId;
       state.user = payload.user;
       updateUserCard();
       clearTypingState();
@@ -2550,6 +2611,28 @@ function wireEvents() {
     }
   });
   el.conversationList.addEventListener('click', (event) => {
+    // Handle hide button
+    const hideBtn = event.target.closest('.hide-dm');
+    if (hideBtn) {
+      event.stopPropagation();
+      hideConversation(hideBtn.dataset.id);
+      return;
+    }
+    // Handle unhide button
+    const unhideBtn = event.target.closest('.unhide-dm');
+    if (unhideBtn) {
+      event.stopPropagation();
+      unhideConversation(unhideBtn.dataset.id);
+      return;
+    }
+    // Handle toggle hidden button
+    const toggleBtn = event.target.closest('#toggleHiddenDMs');
+    if (toggleBtn) {
+      event.stopPropagation();
+      toggleShowHiddenConversations();
+      return;
+    }
+    // Handle conversation selection
     const div = event.target.closest('.conversation');
     if (div) {
       setActiveConversation(div.dataset.id);
