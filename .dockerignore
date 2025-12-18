@@ -1,0 +1,9 @@
+node_modules
+server/node_modules
+npm-debug.log
+Dockerfile
+.git
+.gitignore
+server/chat-data.json
+*.env
+
