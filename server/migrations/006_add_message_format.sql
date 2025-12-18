@@ -1,0 +1,2 @@
+ALTER TABLE messages
+  ADD COLUMN format VARCHAR(20) NOT NULL DEFAULT 'text';

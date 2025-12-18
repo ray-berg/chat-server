@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Secure Chat – Admin Console</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body class="admin-page">
+    <header class="admin-header">
+      <div>
+        <h1>Secure Chat</h1>
+        <p class="tagline">Administration console</p>
+      </div>
+      <div class="admin-header-actions">
+        <a class="ghost" href="/">Back to chat</a>
+      </div>
+    </header>
+
+    <div id="adminAuthWarning" class="admin-warning hidden">
+      <p>You must sign in with an administrator or moderator account to use this console.</p>
+      <p class="muted">Return to the main client, sign in, then relaunch the admin console.</p>
+    </div>
+
+    <main id="adminApp" class="admin-shell hidden">
+      <nav id="adminMenu" class="admin-menu" aria-label="Admin navigation">
+        <button class="menu-btn active" data-panel-target="overview">Overview</button>
+        <button class="menu-btn" data-panel-target="accounts">Accounts</button>
+        <button class="menu-btn" data-panel-target="approvals">Approvals</button>
+        <button class="menu-btn hidden" data-panel-target="audit">Audit log</button>
+        <button id="refreshAdmin" class="ghost menu-refresh" title="Refresh data">↻ Refresh</button>
+      </nav>
+      <section class="admin-content">
+        <div class="admin-panel" data-panel="overview">
+          <div class="panel-header">
+            <h2>Platform stats</h2>
+            <p class="muted small">Live totals for users, conversations, and messages</p>
+          </div>
+          <div id="adminStats" class="stats"></div>
+          <div class="admin-card subtle-card">
+            <h3>Welcome</h3>
+            <p>Use the navigation menu to switch between administrative tasks without leaving this console.</p>
+            <p class="muted small">Stats refresh automatically or via the refresh button.</p>
+          </div>
+        </div>
+
+        <div class="admin-panel hidden" data-panel="accounts">
+          <div class="panel-header panel-header-with-action">
+            <div>
+              <h2>User Directory</h2>
+              <p class="muted small">Manage user accounts and profiles</p>
+            </div>
+            <button id="addUserBtn" class="add-user-btn" title="Create new user">+</button>
+          </div>
+          <div id="adminUsers" class="admin-users admin-scroll full-height"></div>
+        </div>
+
+        <div class="admin-panel hidden" data-panel="approvals">
+          <div class="panel-header">
+            <h2>Approvals</h2>
+            <p class="muted small">Review and respond to approval requests</p>
+          </div>
+          <div class="approval-panel">
+            <div class="approval-columns">
+              <div>
+                <h4>Incoming</h4>
+                <div id="adminIncomingApprovals" class="approval-list"></div>
+              </div>
+              <div>
+                <h4>Outgoing</h4>
+                <div id="adminOutgoingApprovals" class="approval-list"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="auditPanel" class="admin-panel hidden" data-panel="audit">
+          <div class="panel-header">
+            <h2>Audit log</h2>
+            <p class="muted small">Administrator visibility only</p>
+          </div>
+          <div id="adminAuditLogs" class="admin-users admin-scroll"></div>
+        </div>
+      </section>
+    </main>
+
+    <div id="toast" class="toast hidden"></div>
+    <script type="module" src="admin.js"></script>
+  </body>
+</html>
