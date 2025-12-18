@@ -1,6 +1,6 @@
 const express = require('express');
 const { z } = require('zod');
-const { authenticateRequest, requireRole, hashPassword } = require('../auth');
+const { authenticateRequest, requireRole, hashPassword, validatePassword } = require('../auth');
 const {
   listUsers,
   updateUserAccess,
@@ -126,6 +126,16 @@ router.post('/users', requireRole('admin'), async (req, res) => {
     return res.status(400).json({ error: 'Invalid payload', details: parse.error.errors });
   }
   const { username, password, displayName, role, manager, bot } = parse.data;
+
+  // Validate password complexity
+  const passwordValidation = validatePassword(password);
+  if (!passwordValidation.valid) {
+    return res.status(400).json({
+      error: 'Password does not meet requirements',
+      details: passwordValidation.errors
+    });
+  }
+
   const existing = await getUserByUsername(username);
   if (existing) {
     return res.status(409).json({ error: 'Username already exists' });
@@ -150,6 +160,16 @@ router.post('/users/:id/reset-password', requireRole('admin', 'moderator'), asyn
   if (!parse.success) {
     return res.status(400).json({ error: 'Invalid payload' });
   }
+
+  // Validate password complexity
+  const passwordValidation = validatePassword(parse.data.password);
+  if (!passwordValidation.valid) {
+    return res.status(400).json({
+      error: 'Password does not meet requirements',
+      details: passwordValidation.errors
+    });
+  }
+
   const target = await getUserById(req.params.id);
   if (!target) {
     return res.status(404).json({ error: 'User not found' });

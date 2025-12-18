@@ -438,6 +438,13 @@ button.icon-btn:hover:not(:disabled) {
   text-decoration: underline;
 }
 
+.password-requirements {
+  display: block;
+  margin-top: var(--space-1);
+  color: var(--color-text-muted);
+  font-size: 0.8em;
+}
+
 /* --------------------------------------------------------------------------
    App Shell (Chat Interface)
    -------------------------------------------------------------------------- */

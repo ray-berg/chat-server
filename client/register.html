@@ -27,6 +27,9 @@
             <label>
               Password
               <input name="password" type="password" autocomplete="new-password" required minlength="8" />
+              <small class="password-requirements">
+                At least 8 characters with uppercase, lowercase, number, and special character
+              </small>
             </label>
             <button type="submit">Create account</button>
           </form>
@@ -78,6 +81,10 @@
             });
             const result = await res.json();
             if (!res.ok) {
+              // Show detailed password errors if available
+              if (result.details && Array.isArray(result.details)) {
+                throw new Error(result.details.join('. '));
+              }
               throw new Error(result.error || 'Registration failed');
             }
             // Save token and redirect

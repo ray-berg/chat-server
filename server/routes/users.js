@@ -1,6 +1,6 @@
 const express = require('express');
 const { z } = require('zod');
-const { authenticateRequest, hashPassword, verifyPassword } = require('../auth');
+const { authenticateRequest, hashPassword, verifyPassword, validatePassword } = require('../auth');
 const { listUsers, updateUserProfile, getUserById, getUserWithPassword, resetUserPassword } = require('../db');
 
 const router = express.Router();
@@ -70,6 +70,16 @@ router.post('/me/password', async (req, res) => {
     return res.status(400).json({ error: 'Invalid password data', details: parse.error.errors });
   }
   const { currentPassword, newPassword } = parse.data;
+
+  // Validate new password complexity
+  const passwordValidation = validatePassword(newPassword);
+  if (!passwordValidation.valid) {
+    return res.status(400).json({
+      error: 'New password does not meet requirements',
+      details: passwordValidation.errors
+    });
+  }
+
   const user = await getUserWithPassword(req.user.id);
   if (!user) {
     return res.status(404).json({ error: 'User not found' });
