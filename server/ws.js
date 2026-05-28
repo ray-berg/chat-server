@@ -10,7 +10,9 @@ const {
   isMember,
   updateUserPresence,
   getActiveApiKeyByHash,
-  touchApiKey
+  touchApiKey,
+  listManagerIds,
+  getAgentAssignment
 } = require('./db');
 const { hashApiKey } = require('./auth');
 
@@ -208,6 +210,51 @@ function setupWebsocket(server) {
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error('WS read receipt broadcast error', err);
+    }
+  });
+
+  // ---- Agent orchestration events ----
+  // profile:updated -> the agent + all managers.
+  events.on('profile:updated', async ({ userId }) => {
+    try {
+      const recipients = new Set([userId, ...(await listManagerIds())]);
+      recipients.forEach((id) => sendToUser(id, { type: 'profile:updated', userId }));
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('WS profile:updated error', err);
+    }
+  });
+
+  // assign/release -> targeted: the assigned agent + the assigning manager.
+  events.on('agent:assigned', ({ assignment }) => {
+    [assignment.userId, assignment.assignedBy].forEach((id) => {
+      if (id) sendToUser(id, { type: 'agent:assigned', assignment });
+    });
+  });
+
+  events.on('agent:released', ({ assignment }) => {
+    [assignment.userId, assignment.assignedBy].forEach((id) => {
+      if (id) sendToUser(id, { type: 'agent:released', assignment });
+    });
+  });
+
+  // activity -> managers, plus the members of the agent's active room; not a
+  // fleet broadcast.
+  events.on('activity:changed', async ({ userId, activityStatus }) => {
+    try {
+      const recipients = new Set(await listManagerIds());
+      const { active } = await getAgentAssignment(userId);
+      if (active) {
+        const members = await getConversationMembers(active.roomId);
+        members.forEach((member) => recipients.add(member.id));
+      }
+      recipients.add(userId);
+      recipients.forEach((id) =>
+        sendToUser(id, { type: 'agent:status_changed', userId, activityStatus })
+      );
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('WS activity:changed error', err);
     }
   });
 

@@ -244,6 +244,15 @@ function requireRole(...roles) {
 
 const requireAdmin = requireRole('admin');
 
+// Manager-gated routes (e.g. agent orchestration): the existing `manager`
+// account flag, with admins implicitly qualifying.
+function requireManager(req, res, next) {
+  if (!req.user || (!req.user.manager && req.user.role !== 'admin')) {
+    return res.status(403).json({ error: 'Manager privileges required' });
+  }
+  return next();
+}
+
 function sanitizeUser(user) {
   if (!user) return null;
   return {
@@ -275,6 +284,7 @@ module.exports = {
   authenticateRequest,
   requireAdmin,
   requireRole,
+  requireManager,
   sanitizeUser,
   // Account lockout
   isAccountLocked,

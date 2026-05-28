@@ -1329,6 +1329,253 @@ async function touchApiKey(id) {
   await conn.execute('UPDATE api_keys SET last_used_at = ? WHERE id = ?', [new Date(), id]);
 }
 
+// ---- Agent orchestration (ported from NOCOS #415) ----
+
+const ACTIVITY_STATES = ['ready', 'working', 'awaiting_review', 'awaiting_assignment', 'idle'];
+
+// Pure: decide whether an assign takes the exclusive lock or is advisory.
+// Shared agents (exclusive === false) are always advisory and never lock.
+function resolveAssignmentMode({ exclusive, advisory }) {
+  const isExclusive = exclusive !== false;
+  const isAdvisory = isExclusive ? Boolean(advisory) : true;
+  return { advisory: isAdvisory, takeLock: isExclusive && !isAdvisory };
+}
+
+function mapAgentProfile(row, skills) {
+  let specialties = [];
+  if (row.specialties) {
+    specialties = typeof row.specialties === 'string' ? JSON.parse(row.specialties) : row.specialties;
+  }
+  return {
+    userId: row.user_id,
+    skills: skills || [],
+    expertiseLevel: row.expertise_level,
+    systemPrompt: row.system_prompt || null,
+    specialties,
+    tone: row.tone || null,
+    exclusive: Boolean(row.exclusive),
+    createdAt: iso(row.created_at),
+    updatedAt: iso(row.updated_at)
+  };
+}
+
+async function getAgentProfile(userId) {
+  const conn = getPool();
+  const [rows] = await conn.execute('SELECT * FROM agent_profiles WHERE user_id = ?', [userId]);
+  if (!rows.length) return null;
+  const [skillRows] = await conn.execute(
+    'SELECT skill FROM agent_skills WHERE user_id = ? ORDER BY skill',
+    [userId]
+  );
+  return mapAgentProfile(rows[0], skillRows.map((r) => r.skill));
+}
+
+async function upsertAgentProfile(userId, fields) {
+  const conn = getPool();
+  const existing = await getAgentProfile(userId);
+  const now = new Date();
+  const merged = {
+    expertiseLevel: fields.expertiseLevel || (existing ? existing.expertiseLevel : 'mid'),
+    systemPrompt:
+      typeof fields.systemPrompt !== 'undefined' ? fields.systemPrompt : existing ? existing.systemPrompt : null,
+    specialties:
+      typeof fields.specialties !== 'undefined' ? fields.specialties : existing ? existing.specialties : null,
+    tone: typeof fields.tone !== 'undefined' ? fields.tone : existing ? existing.tone : null,
+    exclusive:
+      typeof fields.exclusive === 'boolean' ? fields.exclusive : existing ? existing.exclusive : true
+  };
+  await conn.execute(
+    `INSERT INTO agent_profiles
+       (user_id, expertise_level, system_prompt, specialties, tone, exclusive, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+       expertise_level = VALUES(expertise_level),
+       system_prompt = VALUES(system_prompt),
+       specialties = VALUES(specialties),
+       tone = VALUES(tone),
+       exclusive = VALUES(exclusive),
+       updated_at = VALUES(updated_at)`,
+    [
+      userId,
+      merged.expertiseLevel,
+      merged.systemPrompt,
+      merged.specialties && merged.specialties.length ? JSON.stringify(merged.specialties) : null,
+      merged.tone,
+      merged.exclusive ? 1 : 0,
+      now,
+      now
+    ]
+  );
+  if (Array.isArray(fields.skills)) {
+    await conn.execute('DELETE FROM agent_skills WHERE user_id = ?', [userId]);
+    const clean = [...new Set(fields.skills.map((s) => String(s).trim().slice(0, 64)).filter(Boolean))];
+    if (clean.length) {
+      const placeholders = clean.map(() => '(?, ?)').join(', ');
+      const params = clean.flatMap((skill) => [userId, skill]);
+      await conn.execute(`INSERT INTO agent_skills (user_id, skill) VALUES ${placeholders}`, params);
+    }
+  }
+  return getAgentProfile(userId);
+}
+
+function mapAssignment(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    userId: row.user_id,
+    roomId: row.room_id,
+    assignedBy: row.assigned_by || null,
+    assignedAt: iso(row.assigned_at),
+    releasedAt: iso(row.released_at),
+    advisory: Boolean(row.advisory)
+  };
+}
+
+async function getAssignmentById(id) {
+  const conn = getPool();
+  const [rows] = await conn.execute('SELECT * FROM agent_assignments WHERE id = ?', [id]);
+  return mapAssignment(rows[0]);
+}
+
+async function getAgentAssignment(userId) {
+  const conn = getPool();
+  const [rows] = await conn.execute(
+    'SELECT * FROM agent_assignments WHERE user_id = ? AND released_at IS NULL ORDER BY assigned_at DESC',
+    [userId]
+  );
+  const mapped = rows.map(mapAssignment);
+  return {
+    active: mapped.find((a) => !a.advisory) || null,
+    advisories: mapped.filter((a) => a.advisory)
+  };
+}
+
+// Atomic exclusive claim via the agent_locks PK. Throws Error{code:'AGENT_LOCKED'}
+// when an exclusive agent already holds an active assignment.
+async function assignAgent({ userId, roomId, assignedBy, advisory = false }) {
+  const profile = await getAgentProfile(userId);
+  const exclusive = profile ? profile.exclusive : true;
+  const mode = resolveAssignmentMode({ exclusive, advisory });
+  const id = randomUUID();
+  const now = new Date();
+  const conn = await getPool().getConnection();
+  try {
+    await conn.beginTransaction();
+    await conn.execute(
+      `INSERT INTO agent_assignments (id, user_id, room_id, assigned_by, assigned_at, advisory)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [id, userId, roomId, assignedBy || null, now, mode.advisory ? 1 : 0]
+    );
+    if (mode.takeLock) {
+      try {
+        await conn.execute(
+          'INSERT INTO agent_locks (user_id, assignment_id, room_id, locked_at) VALUES (?, ?, ?, ?)',
+          [userId, id, roomId, now]
+        );
+      } catch (err) {
+        if (err && err.code === 'ER_DUP_ENTRY') {
+          const locked = new Error('Agent already has an active assignment');
+          locked.code = 'AGENT_LOCKED';
+          throw locked;
+        }
+        throw err;
+      }
+    }
+    await conn.commit();
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+  return getAssignmentById(id);
+}
+
+async function releaseAgent({ userId, assignmentId }) {
+  const conn = getPool();
+  const now = new Date();
+  if (assignmentId) {
+    await conn.execute(
+      'UPDATE agent_assignments SET released_at = ? WHERE id = ? AND user_id = ? AND released_at IS NULL',
+      [now, assignmentId, userId]
+    );
+    await conn.execute('DELETE FROM agent_locks WHERE user_id = ? AND assignment_id = ?', [
+      userId,
+      assignmentId
+    ]);
+  } else {
+    await conn.execute(
+      'UPDATE agent_assignments SET released_at = ? WHERE user_id = ? AND released_at IS NULL',
+      [now, userId]
+    );
+    await conn.execute('DELETE FROM agent_locks WHERE user_id = ?', [userId]);
+  }
+  return getAgentAssignment(userId);
+}
+
+async function listAgents({ skill, available = true } = {}) {
+  const conn = getPool();
+  const params = [];
+  let sql = `SELECT u.id, u.username, u.display_name AS displayName, u.role, u.bot, u.status,
+       u.avatar_url AS avatarUrl, u.profile_photo_url AS profilePhotoUrl,
+       u.presence_status AS presenceStatus, u.activity_status AS activityStatus
+     FROM agent_profiles p
+     JOIN users u ON u.id = p.user_id`;
+  if (skill) {
+    sql += ' JOIN agent_skills s ON s.user_id = p.user_id AND s.skill = ?';
+    params.push(skill);
+  }
+  if (available) {
+    sql += ' WHERE (p.exclusive = 0 OR p.user_id NOT IN (SELECT user_id FROM agent_locks))';
+  }
+  sql += ' ORDER BY u.display_name';
+  const [rows] = await conn.execute(sql, params);
+  const agents = [];
+  // eslint-disable-next-line no-restricted-syntax
+  for (const row of rows) {
+    // eslint-disable-next-line no-await-in-loop
+    const profile = await getAgentProfile(row.id);
+    // eslint-disable-next-line no-await-in-loop
+    const assignment = await getAgentAssignment(row.id);
+    agents.push({
+      user: {
+        id: row.id,
+        username: row.username,
+        displayName: row.displayName,
+        role: row.role,
+        bot: Boolean(row.bot),
+        status: row.status,
+        avatarUrl: row.avatarUrl,
+        profilePhotoUrl: row.profilePhotoUrl,
+        presenceStatus: row.presenceStatus,
+        activityStatus: row.activityStatus
+      },
+      profile,
+      assignment
+    });
+  }
+  return agents;
+}
+
+async function setActivityStatus(userId, status) {
+  if (!ACTIVITY_STATES.includes(status)) {
+    throw new Error('Invalid activity status');
+  }
+  const conn = getPool();
+  await conn.execute('UPDATE users SET activity_status = ?, updated_at = ? WHERE id = ?', [
+    status,
+    new Date(),
+    userId
+  ]);
+  return status;
+}
+
+async function listManagerIds() {
+  const conn = getPool();
+  const [rows] = await conn.execute("SELECT id FROM users WHERE manager = 1 OR role = 'admin'");
+  return rows.map((row) => row.id);
+}
+
 module.exports = {
   initDb,
   createUser,
@@ -1385,5 +1632,16 @@ module.exports = {
   checkDbHealth,
   closePool,
   markMessagesRead,
-  getReadReceipts
+  getReadReceipts,
+  // Agent orchestration
+  resolveAssignmentMode,
+  getAgentProfile,
+  upsertAgentProfile,
+  listAgents,
+  getAssignmentById,
+  getAgentAssignment,
+  assignAgent,
+  releaseAgent,
+  setActivityStatus,
+  listManagerIds
 };
