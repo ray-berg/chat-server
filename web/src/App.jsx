@@ -12,6 +12,7 @@ import { ComposeDm } from './modals/ComposeDm.jsx';
 import { SettingsPanel } from './modals/SettingsPanel.jsx';
 import { CreateRoom } from './modals/CreateRoom.jsx';
 import { AccessRequests } from './modals/AccessRequests.jsx';
+import { AdminUsers } from './modals/AdminUsers.jsx';
 import { Avatar, Button } from './components/atoms.jsx';
 import { Icon } from './icons.jsx';
 
@@ -118,6 +119,7 @@ function Shell() {
   const [settingsOpen, setSettingsOpen] = React.useState(false);
   const [createRoomOpen, setCreateRoomOpen] = React.useState(false);
   const [accessReqOpen, setAccessReqOpen] = React.useState(false);
+  const [adminUsersOpen, setAdminUsersOpen] = React.useState(false);
   const isAdmin = currentUser?.role === 'admin';
   const isMod = isAdmin || currentUser?.role === 'moderator';
 
@@ -211,6 +213,7 @@ function Shell() {
         onOpenSettings={() => setSettingsOpen(true)}
         onCreateRoom={isMod ? () => setCreateRoomOpen(true) : undefined}
         onOpenAccessRequests={isAdmin ? () => setAccessReqOpen(true) : undefined}
+        onOpenAdminUsers={isAdmin ? () => setAdminUsersOpen(true) : undefined}
         currentAccent={currentUser?.accentColor}
         isAdmin={isAdmin}
         approvalsCount={(approvals.incoming || []).filter((a) => a.status === 'pending').length}
@@ -309,6 +312,7 @@ function Shell() {
         onApprove={approveAccessRequest}
         onDeny={denyAccessRequest}
       />
+      <AdminUsers open={adminUsersOpen} onClose={() => setAdminUsersOpen(false)} currentUserId={currentUser?.id} />
     </div>
   );
 }

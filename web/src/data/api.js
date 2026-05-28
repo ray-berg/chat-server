@@ -57,6 +57,12 @@ export async function apiPatch(path, body) {
   return asJson(res, 'PATCH', path);
 }
 
+export async function apiDelete(path) {
+  const res = await authFetch(path, { method: 'DELETE' });
+  if (res.status === 204) return {};
+  return asJson(res, 'DELETE', path);
+}
+
 export async function login(username, password) {
   const res = await fetch('/api/auth/login', {
     method: 'POST',
@@ -102,6 +108,13 @@ export const api = {
   approveAccessRequest: (id, password, role = 'user') =>
     apiPost(`/api/admin/access-requests/${id}/approve`, { password, role }),
   denyAccessRequest: (id) => apiPost(`/api/admin/access-requests/${id}/deny`),
+  adminStats: () => apiGet('/api/admin/stats'),
+  adminUsers: (q = '') => apiGet(`/api/admin/users?q=${encodeURIComponent(q)}`),
+  adminGetUser: (id) => apiGet(`/api/admin/users/${id}`),
+  adminUpdateUser: (id, patch) => apiPatch(`/api/admin/users/${id}`, patch),
+  adminCreateUser: (payload) => apiPost('/api/admin/users', payload),
+  adminResetPassword: (id, password) => apiPost(`/api/admin/users/${id}/reset-password`, { password }),
+  adminDeleteUser: (id) => apiDelete(`/api/admin/users/${id}`),
   uploadImage: async (scope, file) => {
     const fd = new FormData();
     fd.append('image', file);

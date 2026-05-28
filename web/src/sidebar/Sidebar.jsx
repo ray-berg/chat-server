@@ -376,7 +376,7 @@ const menuItemStyle = {
   width: '100%',
 };
 
-function UserFooter({ user, onSetPresence, onLogout, onSetAccent, currentAccent, isAdmin, onOpenSettings, onOpenAccessRequests }) {
+function UserFooter({ user, onSetPresence, onLogout, onSetAccent, currentAccent, isAdmin, onOpenSettings, onOpenAccessRequests, onOpenAdminUsers }) {
   const [open, setOpen] = React.useState(false);
   if (!user) return null;
   return (
@@ -496,6 +496,12 @@ function UserFooter({ user, onSetPresence, onLogout, onSetAccent, currentAccent,
               <Icon name="user" size={12} />
               Profile &amp; settings
             </button>
+            {isAdmin && onOpenAdminUsers && (
+              <button onClick={() => { setOpen(false); onOpenAdminUsers(); }} style={menuItemStyle}>
+                <Icon name="users" size={12} />
+                Manage users
+              </button>
+            )}
             {isAdmin && onOpenAccessRequests && (
               <button onClick={() => { setOpen(false); onOpenAccessRequests(); }} style={menuItemStyle}>
                 <Icon name="inbox" size={12} />
@@ -536,6 +542,7 @@ export function ChannelList({
   isAdmin,
   onOpenSettings,
   onOpenAccessRequests,
+  onOpenAdminUsers,
   onCreateRoom,
   approvalsCount = 0,
   onQuick,
@@ -666,6 +673,7 @@ export function ChannelList({
         isAdmin={isAdmin}
         onOpenSettings={onOpenSettings}
         onOpenAccessRequests={onOpenAccessRequests}
+        onOpenAdminUsers={onOpenAdminUsers}
       />
     </aside>
   );
