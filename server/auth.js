@@ -153,8 +153,9 @@ function cleanupBlacklist() {
   }
 }
 
-// Periodically clean up expired blacklisted tokens
-setInterval(cleanupBlacklist, config.auth.tokenCleanupInterval);
+// Periodically clean up expired blacklisted tokens. unref() so this timer alone
+// doesn't keep the process alive (otherwise `node --test` / CI never exits).
+setInterval(cleanupBlacklist, config.auth.tokenCleanupInterval).unref();
 
 function createToken(user) {
   return jwt.sign(

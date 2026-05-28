@@ -1216,9 +1216,79 @@ async function getReadReceipts(conversationId) {
   }));
 }
 
+async function createAccessRequest({ username, displayName, email = null, note = null }) {
+  const conn = getPool();
+  const id = randomUUID();
+  await conn.execute(
+    `INSERT INTO access_requests (id, username, display_name, email, note, status, created_at)
+     VALUES (?, ?, ?, ?, ?, 'pending', ?)`,
+    [id, username, displayName, email, note, new Date()]
+  );
+  return id;
+}
+
+async function hasPendingAccessRequest(username) {
+  const conn = getPool();
+  const [rows] = await conn.execute(
+    `SELECT 1 FROM access_requests WHERE username = ? AND status = 'pending' LIMIT 1`,
+    [username]
+  );
+  return rows.length > 0;
+}
+
+function mapAccessRequest(row) {
+  return {
+    id: row.id,
+    username: row.username,
+    displayName: row.display_name,
+    email: row.email || null,
+    note: row.note || null,
+    status: row.status,
+    createdAt: iso(row.created_at),
+    decidedAt: iso(row.decided_at),
+    decidedBy: row.decided_by || null,
+    createdUserId: row.created_user_id || null
+  };
+}
+
+async function listAccessRequests({ status } = {}) {
+  const conn = getPool();
+  let sql = 'SELECT * FROM access_requests';
+  const params = [];
+  if (status) {
+    sql += ' WHERE status = ?';
+    params.push(status);
+  }
+  sql += ' ORDER BY created_at DESC LIMIT 200';
+  const [rows] = await conn.execute(sql, params);
+  return rows.map(mapAccessRequest);
+}
+
+async function getAccessRequestById(id) {
+  const conn = getPool();
+  const [rows] = await conn.execute('SELECT * FROM access_requests WHERE id = ?', [id]);
+  return rows[0] ? mapAccessRequest(rows[0]) : null;
+}
+
+async function decideAccessRequest({ id, deciderId, decision, createdUserId = null }) {
+  const conn = getPool();
+  await conn.execute(
+    `UPDATE access_requests
+     SET status = ?, decided_at = ?, decided_by = ?, created_user_id = ?
+     WHERE id = ?`,
+    [decision, new Date(), deciderId, createdUserId, id]
+  );
+  return getAccessRequestById(id);
+}
+
 module.exports = {
   initDb,
   createUser,
+  createAccessRequest,
+  hasPendingAccessRequest,
+  listAccessRequests,
+  getAccessRequestById,
+  decideAccessRequest,
   getUserById,
   getUserWithPassword,
   getUserByUsername,

@@ -12,7 +12,10 @@ const {
   resetUserPassword,
   deleteUser,
   recordAuditLog,
-  listAuditLogs
+  listAuditLogs,
+  listAccessRequests,
+  getAccessRequestById,
+  decideAccessRequest
 } = require('../db');
 
 const router = express.Router();
@@ -214,6 +217,73 @@ router.get('/stats', requireRole('admin', 'moderator'), async (req, res) => {
 router.get('/audit-logs', requireRole('admin'), async (req, res) => {
   const logs = await listAuditLogs({ limit: 200 });
   return res.json({ logs });
+});
+
+// ---- Access requests (outsider account requests) ----
+
+router.get('/access-requests', requireRole('admin', 'moderator'), async (req, res) => {
+  const status = ['pending', 'approved', 'denied'].includes(req.query.status) ? req.query.status : undefined;
+  const requests = await listAccessRequests({ status });
+  return res.json({ requests });
+});
+
+const approveSchema = z.object({
+  password: z.string().min(8).max(128),
+  role: roleEnum.default('user')
+});
+
+router.post('/access-requests/:id/approve', requireRole('admin'), async (req, res) => {
+  const parse = approveSchema.safeParse(req.body);
+  if (!parse.success) {
+    return res.status(400).json({ error: 'Invalid payload', details: parse.error.errors });
+  }
+  const request = await getAccessRequestById(req.params.id);
+  if (!request) {
+    return res.status(404).json({ error: 'Request not found' });
+  }
+  if (request.status !== 'pending') {
+    return res.status(409).json({ error: 'Request already processed' });
+  }
+  const passwordValidation = validatePassword(parse.data.password);
+  if (!passwordValidation.valid) {
+    return res.status(400).json({ error: 'Password does not meet requirements', details: passwordValidation.errors });
+  }
+  if (await getUserByUsername(request.username)) {
+    return res.status(409).json({ error: 'A user with that username already exists' });
+  }
+  const passwordHash = await hashPassword(parse.data.password);
+  const user = await createUser({
+    username: request.username,
+    passwordHash,
+    displayName: request.displayName,
+    role: parse.data.role
+  });
+  await decideAccessRequest({ id: request.id, deciderId: req.user.id, decision: 'approved', createdUserId: user.id });
+  await recordAuditLog({
+    actorId: req.user.id,
+    action: 'admin.access_request.approve',
+    targetId: user.id,
+    metadata: { username: user.username, requestId: request.id }
+  });
+  return res.status(201).json({ user });
+});
+
+router.post('/access-requests/:id/deny', requireRole('admin'), async (req, res) => {
+  const request = await getAccessRequestById(req.params.id);
+  if (!request) {
+    return res.status(404).json({ error: 'Request not found' });
+  }
+  if (request.status !== 'pending') {
+    return res.status(409).json({ error: 'Request already processed' });
+  }
+  await decideAccessRequest({ id: request.id, deciderId: req.user.id, decision: 'denied' });
+  await recordAuditLog({
+    actorId: req.user.id,
+    action: 'admin.access_request.deny',
+    targetId: null,
+    metadata: { username: request.username, requestId: request.id }
+  });
+  return res.json({ ok: true });
 });
 
 module.exports = router;
