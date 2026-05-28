@@ -376,7 +376,7 @@ const menuItemStyle = {
   width: '100%',
 };
 
-function UserFooter({ user, onSetPresence, onLogout, onSetAccent, currentAccent, isAdmin }) {
+function UserFooter({ user, onSetPresence, onLogout, onSetAccent, currentAccent, isAdmin, onOpenSettings }) {
   const [open, setOpen] = React.useState(false);
   if (!user) return null;
   return (
@@ -492,6 +492,10 @@ function UserFooter({ user, onSetPresence, onLogout, onSetAccent, currentAccent,
               </div>
             </div>
             <div style={{ height: 1, background: 'var(--border-subtle)', margin: '4px 0' }} />
+            <button onClick={() => { setOpen(false); onOpenSettings && onOpenSettings(); }} style={menuItemStyle}>
+              <Icon name="user" size={12} />
+              Profile &amp; settings
+            </button>
             {isAdmin && (
               <a href="/admin.html" target="_blank" rel="noopener noreferrer" style={{ ...menuItemStyle, textDecoration: 'none' }}>
                 <Icon name="settings" size={12} />
@@ -505,7 +509,7 @@ function UserFooter({ user, onSetPresence, onLogout, onSetAccent, currentAccent,
           </div>
         )}
       </div>
-      <IconButton icon="settings" label="Settings" />
+      <IconButton icon="settings" label="Settings" onClick={onOpenSettings} />
     </div>
   );
 }
@@ -524,6 +528,8 @@ export function ChannelList({
   onSetAccent,
   currentAccent,
   isAdmin,
+  onOpenSettings,
+  onCreateRoom,
   approvalsCount = 0,
   onQuick,
 }) {
@@ -623,7 +629,8 @@ export function ChannelList({
         />
         <Section
           label="Channels"
-          actionIcon="plus"
+          actionIcon={onCreateRoom ? 'plus' : undefined}
+          onAction={onCreateRoom}
           items={chans}
           renderItem={(c) => <ChannelRow key={c.id} ch={c} active={c.id === activeId} onSelect={onSelect} />}
         />
@@ -650,6 +657,7 @@ export function ChannelList({
         onSetAccent={onSetAccent}
         currentAccent={currentAccent}
         isAdmin={isAdmin}
+        onOpenSettings={onOpenSettings}
       />
     </aside>
   );

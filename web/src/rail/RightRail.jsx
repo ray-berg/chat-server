@@ -53,7 +53,7 @@ function DetailSection({ title, actionLabel, children }) {
   );
 }
 
-function MemberRow({ user, expanded }) {
+function MemberRow({ user, expanded, onBan }) {
   if (!user) return null;
   return (
     <div
@@ -74,7 +74,13 @@ function MemberRow({ user, expanded }) {
           </div>
         )}
       </div>
-      <IconButton icon="user" label="View profile" />
+      {onBan ? (
+        <Button variant="danger" size="sm" onClick={() => onBan(user)}>
+          Ban
+        </Button>
+      ) : (
+        <IconButton icon="user" label="View profile" />
+      )}
     </div>
   );
 }
@@ -140,10 +146,83 @@ function ThreadPane({ source, usersById, channel, onThreadSend }) {
   );
 }
 
-function DetailsPane({ channel, members, usersById }) {
+function RoomAdminSection({ channel, isMod, onSetVisibility, fetchRoomRequests, onRespondRequest }) {
+  const [requests, setRequests] = React.useState([]);
+  const isRoom = channel.type === 'room';
+
+  const reload = React.useCallback(() => {
+    if (isMod && isRoom && channel.privacy === 'private' && fetchRoomRequests) {
+      fetchRoomRequests(channel.id).then(setRequests).catch(() => setRequests([]));
+    } else {
+      setRequests([]);
+    }
+  }, [isMod, isRoom, channel.id, channel.privacy, fetchRoomRequests]);
+
+  React.useEffect(() => {
+    reload();
+  }, [reload]);
+
+  if (!isMod || !isRoom) return null;
+
+  return (
+    <DetailSection title="Moderation">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+        <span style={{ fontSize: 12, color: 'var(--fg-3)', flex: 1 }}>
+          Visibility: <strong style={{ color: 'var(--fg-1)' }}>{channel.privacy === 'private' ? 'Private' : 'Public'}</strong>
+        </span>
+        <Button variant="flat" size="sm" onClick={() => onSetVisibility(channel.id, channel.privacy === 'private')}>
+          Make {channel.privacy === 'private' ? 'public' : 'private'}
+        </Button>
+      </div>
+      {channel.privacy === 'private' && (
+        <div>
+          <div style={{ fontSize: 11, color: 'var(--fg-5)', marginBottom: 6 }}>Pending join requests · {requests.length}</div>
+          {requests.length === 0 && <div style={{ fontSize: 12, color: 'var(--fg-5)' }}>None.</div>}
+          {requests.map((r) => (
+            <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0' }}>
+              <span style={{ flex: 1, fontSize: 13, color: 'var(--fg-2)' }}>
+                {r.requester?.displayName || r.requester?.username || r.requesterId}
+                {r.note ? <span style={{ color: 'var(--fg-5)' }}> — {r.note}</span> : null}
+              </span>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={async () => {
+                  await onRespondRequest(channel.id, r.id, 'approved');
+                  reload();
+                }}
+              >
+                Approve
+              </Button>
+              <Button
+                variant="danger"
+                size="sm"
+                onClick={async () => {
+                  await onRespondRequest(channel.id, r.id, 'denied');
+                  reload();
+                }}
+              >
+                Deny
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+    </DetailSection>
+  );
+}
+
+function DetailsPane({ channel, members, usersById, isMod, onSetVisibility, fetchRoomRequests, onRespondRequest }) {
   const memberUsers = members.map((id) => usersById[id]).filter(Boolean);
   return (
     <div className="nocos-scrollbar" style={{ flex: 1, overflowY: 'auto', minHeight: 0, padding: '12px 14px' }}>
+      <RoomAdminSection
+        channel={channel}
+        isMod={isMod}
+        onSetVisibility={onSetVisibility}
+        fetchRoomRequests={fetchRoomRequests}
+        onRespondRequest={onRespondRequest}
+      />
       <DetailSection title="Topic" actionLabel="edit">
         <p style={{ margin: 0, fontSize: 13, color: 'var(--fg-3)' }}>No topic set.</p>
       </DetailSection>
@@ -193,11 +272,18 @@ function DetailsPane({ channel, members, usersById }) {
   );
 }
 
-function MembersPane({ members, usersById }) {
+function MembersPane({ members, usersById, isMod, channel, currentUserId, onBan }) {
   const [q, setQ] = React.useState('');
   const list = members.map((id) => usersById[id]).filter(Boolean).filter((u) => u.name.toLowerCase().includes(q.toLowerCase()));
   const online = list.filter((u) => u.presence === 'online');
   const offline = list.filter((u) => u.presence !== 'online');
+  const canBan = (u) => isMod && channel?.type === 'room' && u.id !== currentUserId;
+  const banHandler = (u) =>
+    canBan(u)
+      ? () => {
+          if (window.confirm(`Ban ${u.name} from #${channel.name}?`)) onBan(channel.id, u.id);
+        }
+      : undefined;
   return (
     <div className="nocos-scrollbar" style={{ flex: 1, overflowY: 'auto', minHeight: 0, padding: '12px 14px' }}>
       <div style={{ marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -214,13 +300,13 @@ function MembersPane({ members, usersById }) {
       <Eyebrow style={{ marginBottom: 6 }}>Online · {online.length}</Eyebrow>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 1, marginBottom: 14 }}>
         {online.map((u) => (
-          <MemberRow key={u.id} user={u} expanded />
+          <MemberRow key={u.id} user={u} expanded onBan={banHandler(u)} />
         ))}
       </div>
       <Eyebrow style={{ marginBottom: 6 }}>Offline · {offline.length}</Eyebrow>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
         {offline.map((u) => (
-          <MemberRow key={u.id} user={u} expanded />
+          <MemberRow key={u.id} user={u} expanded onBan={banHandler(u)} />
         ))}
       </div>
     </div>
@@ -309,15 +395,44 @@ function ApprovalsPane({ approvals, usersById, onRespond }) {
   );
 }
 
-export function RightRail({ mode, channel, members = [], usersById, approvals, messages = [], threadSourceId, onRespondApproval, onThreadSend, onClose }) {
+export function RightRail({
+  mode,
+  channel,
+  members = [],
+  usersById,
+  approvals,
+  messages = [],
+  threadSourceId,
+  isMod,
+  currentUserId,
+  onRespondApproval,
+  onThreadSend,
+  onSetVisibility,
+  fetchRoomRequests,
+  onRespondRequest,
+  onBan,
+  onClose,
+}) {
   if (!mode) return null;
   const threadSource = threadSourceId ? messages.find((m) => m.id === threadSourceId) : null;
   return (
     <aside style={{ width: 360, background: 'var(--bg-surface)', borderLeft: '1px solid var(--border-subtle)', display: 'flex', flexDirection: 'column', flexShrink: 0, minHeight: 0 }}>
       <RailHeader mode={mode} channel={channel} onClose={onClose} />
       {mode === 'thread' && <ThreadPane source={threadSource} usersById={usersById} channel={channel} onThreadSend={onThreadSend} />}
-      {mode === 'details' && <DetailsPane channel={channel} members={members} usersById={usersById} />}
-      {mode === 'members' && <MembersPane members={members} usersById={usersById} />}
+      {mode === 'details' && (
+        <DetailsPane
+          channel={channel}
+          members={members}
+          usersById={usersById}
+          isMod={isMod}
+          onSetVisibility={onSetVisibility}
+          fetchRoomRequests={fetchRoomRequests}
+          onRespondRequest={onRespondRequest}
+        />
+      )}
+      {mode === 'members' && (
+        <MembersPane members={members} usersById={usersById} isMod={isMod} channel={channel} currentUserId={currentUserId} onBan={onBan} />
+      )}
       {mode === 'approvals' && <ApprovalsPane approvals={approvals} usersById={usersById} onRespond={onRespondApproval} />}
       {mode === 'files' && <EmptyPane icon="file" lines={['No files indexed yet.', 'Uploaded images and attachments will appear here.']} />}
       {mode === 'pinned' && <EmptyPane icon="pin" lines={['No pinned messages.', 'Pin a message from its hover toolbar.']} />}

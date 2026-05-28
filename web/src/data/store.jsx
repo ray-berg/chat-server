@@ -212,6 +212,22 @@ export function ChatProvider({ children }) {
     [refreshApprovals],
   );
 
+  const updateProfile = React.useCallback(
+    async (patch) => {
+      const res = await api.updateProfile(patch);
+      if (res.profile) {
+        const mapped = mapUser(res.profile);
+        setCurrentUser((u) => ({ ...u, ...mapped }));
+        mergeUsers([res.profile]);
+      }
+      return res.profile;
+    },
+    [mergeUsers],
+  );
+
+  const uploadImage = React.useCallback((scope, file) => api.uploadImage(scope, file), []);
+  const changePassword = React.useCallback((cur, next) => api.changePassword(cur, next), []);
+
   const setAccent = React.useCallback(async (accentColor) => {
     setCurrentUser((u) => (u ? { ...u, accentColor } : u));
     try {
@@ -230,6 +246,41 @@ export function ChatProvider({ children }) {
       } catch {
         return null;
       }
+    },
+    [refreshChannels],
+  );
+
+  const createRoom = React.useCallback(
+    async (title, isPublic) => {
+      const res = await api.createRoom(title, isPublic);
+      await refreshChannels();
+      return res.room?.id || null;
+    },
+    [refreshChannels],
+  );
+
+  const setRoomVisibility = React.useCallback(
+    async (id, isPublic) => {
+      await api.setRoomVisibility(id, isPublic);
+      await refreshChannels();
+    },
+    [refreshChannels],
+  );
+
+  const fetchRoomRequests = React.useCallback((id) => api.roomRequests(id).then((r) => r.requests || []), []);
+
+  const respondRoomRequest = React.useCallback(
+    async (roomId, requestId, decision) => {
+      await api.respondRoomRequest(roomId, requestId, decision);
+      await refreshChannels();
+    },
+    [refreshChannels],
+  );
+
+  const banFromRoom = React.useCallback(
+    async (roomId, targetUserId, reason) => {
+      await api.banFromRoom(roomId, targetUserId, reason);
+      await refreshChannels();
     },
     [refreshChannels],
   );
@@ -394,9 +445,17 @@ export function ChatProvider({ children }) {
     sendTyping,
     setPresence,
     setAccent,
+    updateProfile,
+    uploadImage,
+    changePassword,
     respondApproval,
     startDirect,
     searchUsers,
+    createRoom,
+    setRoomVisibility,
+    fetchRoomRequests,
+    respondRoomRequest,
+    banFromRoom,
     refreshChannels,
     doLogin,
     logout,

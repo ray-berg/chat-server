@@ -52,6 +52,11 @@ export async function apiPut(path, body) {
   return asJson(res, 'PUT', path);
 }
 
+export async function apiPatch(path, body) {
+  const res = await authFetch(path, { method: 'PATCH', body: JSON.stringify(body) });
+  return asJson(res, 'PATCH', path);
+}
+
 export async function login(username, password) {
   const res = await fetch('/api/auth/login', {
     method: 'POST',
@@ -76,9 +81,25 @@ export const api = {
   startDirect: (targetUserId) => apiPost('/api/conversations/direct', { targetUserId }),
   joinRoom: (id) => apiPost(`/api/rooms/${id}/join`),
   activateRoom: (id) => apiPost(`/api/rooms/${id}/activate`),
+  createRoom: (title, isPublic) => apiPost('/api/rooms', { title, isPublic }),
+  setRoomVisibility: (id, isPublic) => apiPatch(`/api/rooms/${id}`, { isPublic }),
+  roomRequests: (id) => apiGet(`/api/rooms/${id}/requests`),
+  respondRoomRequest: (roomId, requestId, decision) =>
+    apiPost(`/api/rooms/${roomId}/requests/${requestId}/respond`, { decision }),
+  banFromRoom: (roomId, targetUserId, reason) =>
+    apiPost(`/api/rooms/${roomId}/ban`, { targetUserId, reason }),
+  addRoomMember: (roomId, targetUserId) => apiPost(`/api/rooms/${roomId}/members`, { targetUserId }),
   approvals: (direction = 'all') => apiGet(`/api/approvals?direction=${direction}`),
   respondApproval: (id, decision) => apiPost(`/api/approvals/${id}/respond`, { decision }),
   setPresence: (presenceStatus) => apiPut('/api/users/me/profile', { presenceStatus }),
   updateProfile: (patch) => apiPut('/api/users/me/profile', patch),
   myProfile: () => apiGet('/api/users/me/profile'),
+  changePassword: (currentPassword, newPassword) =>
+    apiPost('/api/users/me/password', { currentPassword, newPassword }),
+  uploadImage: async (scope, file) => {
+    const fd = new FormData();
+    fd.append('image', file);
+    const res = await authFetch(`/api/uploads/images?scope=${scope}`, { method: 'POST', body: fd });
+    return asJson(res, 'POST', '/api/uploads/images');
+  },
 };

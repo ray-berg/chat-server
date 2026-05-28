@@ -9,6 +9,8 @@ import { RightRail } from './rail/RightRail.jsx';
 import { CommandPalette } from './modals/CommandPalette.jsx';
 import { HuddleFloater } from './modals/HuddleFloater.jsx';
 import { ComposeDm } from './modals/ComposeDm.jsx';
+import { SettingsPanel } from './modals/SettingsPanel.jsx';
+import { CreateRoom } from './modals/CreateRoom.jsx';
 import { Avatar, Button } from './components/atoms.jsx';
 import { Icon } from './icons.jsx';
 
@@ -83,9 +85,17 @@ function Shell() {
     sendTyping,
     setPresence,
     setAccent,
+    updateProfile,
+    uploadImage,
+    changePassword,
     respondApproval,
     startDirect,
     searchUsers,
+    createRoom,
+    setRoomVisibility,
+    fetchRoomRequests,
+    respondRoomRequest,
+    banFromRoom,
     logout,
   } = chat;
 
@@ -101,6 +111,9 @@ function Shell() {
   const [paletteOpen, setPaletteOpen] = React.useState(false);
   const [huddleOpen, setHuddleOpen] = React.useState(false);
   const [composeOpen, setComposeOpen] = React.useState(false);
+  const [settingsOpen, setSettingsOpen] = React.useState(false);
+  const [createRoomOpen, setCreateRoomOpen] = React.useState(false);
+  const isMod = currentUser?.role === 'admin' || currentUser?.role === 'moderator';
 
   // Auto-select a channel once data is loaded.
   React.useEffect(() => {
@@ -158,6 +171,7 @@ function Shell() {
       .filter((u) => u && u.id !== currentUser?.id && !dmUserIds.has(u.id))
       .map((u) => ({ kind: 'people', id: u.id, label: u.name, hint: 'DM' })),
     { kind: 'action', id: 'compose', label: 'Start a DM…', hint: 'action' },
+    ...(isMod ? [{ kind: 'action', id: 'createroom', label: 'Create channel…', hint: 'action' }] : []),
     { kind: 'action', id: 'huddle', label: 'Start huddle', hint: 'action' },
   ];
 
@@ -165,6 +179,7 @@ function Shell() {
     if (item.kind === 'channel' || item.kind === 'dm') selectChannel(item.id);
     else if (item.kind === 'people') openDirectWith(item.id);
     else if (item.id === 'compose') setComposeOpen(true);
+    else if (item.id === 'createroom') setCreateRoomOpen(true);
     else if (item.id === 'huddle') setHuddleOpen(true);
   }
 
@@ -187,6 +202,8 @@ function Shell() {
         onSetPresence={setPresence}
         onLogout={logout}
         onSetAccent={setAccent}
+        onOpenSettings={() => setSettingsOpen(true)}
+        onCreateRoom={isMod ? () => setCreateRoomOpen(true) : undefined}
         currentAccent={currentUser?.accentColor}
         isAdmin={currentUser?.role === 'admin'}
         approvalsCount={(approvals.incoming || []).filter((a) => a.status === 'pending').length}
@@ -240,8 +257,14 @@ function Shell() {
         approvals={approvals}
         messages={messages}
         threadSourceId={threadSourceId}
+        isMod={isMod}
+        currentUserId={currentUser?.id}
         onRespondApproval={respondApproval}
         onThreadSend={(text) => sendMessage(text)}
+        onSetVisibility={setRoomVisibility}
+        fetchRoomRequests={fetchRoomRequests}
+        onRespondRequest={respondRoomRequest}
+        onBan={banFromRoom}
         onClose={() => setRailMode(null)}
       />
 
@@ -253,6 +276,24 @@ function Shell() {
         searchUsers={searchUsers}
         currentUserId={currentUser?.id}
         onPicked={openDirectWith}
+      />
+      <SettingsPanel
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        user={currentUser}
+        updateProfile={updateProfile}
+        uploadImage={uploadImage}
+        changePassword={changePassword}
+        setAccent={setAccent}
+      />
+      <CreateRoom
+        open={createRoomOpen}
+        onClose={() => setCreateRoomOpen(false)}
+        onCreate={async (title, isPublic) => {
+          const id = await createRoom(title, isPublic);
+          if (id) selectChannel(id);
+          return id;
+        }}
       />
     </div>
   );
