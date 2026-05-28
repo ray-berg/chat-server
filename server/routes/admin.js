@@ -1,6 +1,13 @@
 const express = require('express');
 const { z } = require('zod');
-const { authenticateRequest, requireRole, hashPassword, validatePassword } = require('../auth');
+const {
+  authenticateRequest,
+  requireRole,
+  hashPassword,
+  validatePassword,
+  generateApiKey,
+  hashApiKey
+} = require('../auth');
 const {
   listUsers,
   updateUserAccess,
@@ -15,7 +22,10 @@ const {
   listAuditLogs,
   listAccessRequests,
   getAccessRequestById,
-  decideAccessRequest
+  decideAccessRequest,
+  createApiKey,
+  listApiKeys,
+  deleteApiKey
 } = require('../db');
 
 const router = express.Router();
@@ -266,6 +276,59 @@ router.post('/access-requests/:id/approve', requireRole('admin'), async (req, re
     metadata: { username: user.username, requestId: request.id }
   });
   return res.status(201).json({ user });
+});
+
+// ---- Admin-provisioned API keys for any account (e.g. bot service accounts) ----
+
+router.get('/users/:id/api-keys', requireRole('admin'), async (req, res) => {
+  const target = await getUserById(req.params.id);
+  if (!target) {
+    return res.status(404).json({ error: 'User not found' });
+  }
+  const keys = await listApiKeys(req.params.id);
+  return res.json({ keys });
+});
+
+const apiKeyLabelSchema = z.object({ label: z.string().max(80).optional() });
+
+router.post('/users/:id/api-keys', requireRole('admin'), async (req, res) => {
+  const parse = apiKeyLabelSchema.safeParse(req.body || {});
+  if (!parse.success) {
+    return res.status(400).json({ error: 'Invalid payload' });
+  }
+  const target = await getUserById(req.params.id);
+  if (!target) {
+    return res.status(404).json({ error: 'User not found' });
+  }
+  const key = generateApiKey();
+  const meta = await createApiKey({
+    userId: req.params.id,
+    label: parse.data.label || null,
+    keyHash: hashApiKey(key),
+    keyPrefix: key.slice(0, 12)
+  });
+  await recordAuditLog({
+    actorId: req.user.id,
+    action: 'admin.api_key.create',
+    targetId: req.params.id,
+    metadata: { keyId: meta.id, label: meta.label }
+  });
+  // Full key returned exactly once.
+  return res.status(201).json({ apiKey: { ...meta, key } });
+});
+
+router.delete('/users/:id/api-keys/:keyId', requireRole('admin'), async (req, res) => {
+  const removed = await deleteApiKey(req.params.keyId, req.params.id);
+  if (!removed) {
+    return res.status(404).json({ error: 'API key not found' });
+  }
+  await recordAuditLog({
+    actorId: req.user.id,
+    action: 'admin.api_key.revoke',
+    targetId: req.params.id,
+    metadata: { keyId: req.params.keyId }
+  });
+  return res.status(204).send();
 });
 
 router.post('/access-requests/:id/deny', requireRole('admin'), async (req, res) => {

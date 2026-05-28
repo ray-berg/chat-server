@@ -2,7 +2,6 @@ const express = require('express');
 const { z } = require('zod');
 const {
   authenticateRequest,
-  requireRole,
   hashPassword,
   verifyPassword,
   validatePassword,
@@ -110,9 +109,12 @@ router.post('/me/password', async (req, res) => {
   return res.json({ ok: true });
 });
 
-// ---- API keys (admin-only; a key authenticates as its owning admin) ----
+// ---- API keys ----
+// Any authenticated user manages their OWN keys (self-scoped). A key
+// authenticates as its owner and carries exactly that owner's role - so a
+// non-admin/bot account gets a non-admin key. Admins can also provision keys
+// for other accounts via /api/admin/users/:id/api-keys.
 
-const requireAdmin = requireRole('admin');
 const apiKeyLabelSchema = z.object({ label: z.string().max(80).optional() });
 
 async function issueKey(userId, label) {
@@ -127,12 +129,12 @@ async function issueKey(userId, label) {
   return { ...meta, key };
 }
 
-router.get('/me/api-keys', requireAdmin, async (req, res) => {
+router.get('/me/api-keys', async (req, res) => {
   const keys = await listApiKeys(req.user.id);
   return res.json({ keys });
 });
 
-router.post('/me/api-keys', requireAdmin, async (req, res) => {
+router.post('/me/api-keys', async (req, res) => {
   const parse = apiKeyLabelSchema.safeParse(req.body || {});
   if (!parse.success) {
     return res.status(400).json({ error: 'Invalid payload' });
@@ -141,7 +143,7 @@ router.post('/me/api-keys', requireAdmin, async (req, res) => {
   return res.status(201).json({ apiKey: created });
 });
 
-router.post('/me/api-keys/:id/rotate', requireAdmin, async (req, res) => {
+router.post('/me/api-keys/:id/rotate', async (req, res) => {
   const parse = apiKeyLabelSchema.safeParse(req.body || {});
   if (!parse.success) {
     return res.status(400).json({ error: 'Invalid payload' });
@@ -154,7 +156,7 @@ router.post('/me/api-keys/:id/rotate', requireAdmin, async (req, res) => {
   return res.status(201).json({ apiKey: created });
 });
 
-router.delete('/me/api-keys/:id', requireAdmin, async (req, res) => {
+router.delete('/me/api-keys/:id', async (req, res) => {
   const removed = await deleteApiKey(req.params.id, req.user.id);
   if (!removed) {
     return res.status(404).json({ error: 'API key not found' });
