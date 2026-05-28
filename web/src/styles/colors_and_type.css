@@ -1,0 +1,428 @@
+/* ============================================================================
+   NOCOS Design Tokens
+   Precision instrument for MSP operations. Dark-only. Information-dense.
+   ============================================================================ */
+
+/* ---- Fonts ---- */
+/* Geist Sans + Geist Mono. Sharp geometry, exceptional tabular numerals,
+   suits a "measurement instrument" aesthetic. Substitute for the codebase's
+   default `font-sans` stack (which currently falls back to system UI). */
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap');
+
+:root {
+  /* ====================================================================
+     COLOR PRIMITIVES
+     Sourced from Tailwind defaults the codebase already uses + the
+     "brass" accent referenced in MetricStrip/EntityContextBar but not
+     yet declared. Brass is the precision-instrument signature color.
+     ==================================================================== */
+
+  /* Grays — page surfaces, borders, type. Match Tailwind `gray-*` so
+     existing className references stay valid. */
+  --gray-950: #030712;
+  --gray-900: #111827;
+  --gray-850: #161e2e;  /* between 900 and 800 — referenced but undefined upstream */
+  --gray-800: #1f2937;
+  --gray-700: #374151;
+  --gray-600: #4b5563;
+  --gray-500: #6b7280;
+  --gray-400: #9ca3af;
+  --gray-300: #d1d5db;
+  --gray-200: #e5e7eb;
+  --gray-100: #f3f4f6;
+  --gray-50:  #f9fafb;
+
+  /* Brand blue — primary action, navigation active, logo, focus rings.
+     Same scale the codebase already consumes via Tailwind `blue-*`. */
+  --blue-300: #93c5fd;
+  --blue-400: #60a5fa;
+  --blue-500: #3b82f6;
+  --blue-600: #2563eb;
+  --blue-700: #1d4ed8;
+
+  /* Brass — accent for KPIs / entity links / hover affordances on dark
+     surfaces. Warm metallic counterpoint to the cool blue. */
+  --brass-200: #f5e8c0;
+  --brass-300: #e8c870;
+  --brass-400: #c9a548;
+  --brass-500: #a78431;
+  --brass-600: #806320;
+
+  /* ====================================================================
+     COSMIC PALETTE
+     Brand-surface colors only. Used on Login, splash, marketing artifacts.
+     NOT used inside the Operations Console — the operator UI stays
+     instrument-flat. The brain logomark sets cyan-as-top, magenta-as-bottom;
+     the wordmark is chrome-bevel with a cyan rim.
+     ==================================================================== */
+  --cyan-300:   #67e8f9;  /* glow highlight */
+  --cyan-400:   #22d3ee;  /* brand cyan — top of logomark */
+  --cyan-500:   #06b6d4;
+  --cyan-600:   #0891b2;
+
+  --magenta-300: #f0abfc;
+  --magenta-400: #e879f9;  /* brand magenta — bottom of logomark */
+  --magenta-500: #d946ef;
+  --magenta-600: #c026d3;
+
+  --violet-400: #a78bfa;
+  --violet-500: #8b5cf6;
+  --violet-600: #7c3aed;
+
+  /* Cosmic background — deep indigo/violet, star-field underlay tone */
+  --cosmic-bg-1: #050216;  /* darkest — base */
+  --cosmic-bg-2: #0d0628;  /* mid plane */
+  --cosmic-bg-3: #1a0b3a;  /* gas highlights */
+
+  /* Vortex glow (logomark center) */
+  --vortex-core: #f0f9f5;  /* near-white */
+  --vortex-mid:  #15a6d8;  /* mid cyan */
+
+  /* Semantic severity — driven by `severity` prop on StatCard / MetricStrip. */
+  --urgent-500: #ef4444;  /* red-500 — needs operator action right now */
+  --urgent-400: #f87171;
+  --urgent-300: #fca5a5;
+  --warn-500:   #f59e0b;  /* amber-500 — attention but not immediate */
+  --warn-400:   #fbbf24;
+  --warn-300:   #fcd34d;
+  --ok-500:     #22c55e;  /* green-500 — healthy / success / online */
+  --ok-400:     #4ade80;
+  --ok-300:     #86efac;
+  --info-500:   #3b82f6;  /* blue-500 — informational, default link */
+  --info-400:   #60a5fa;
+  --accent-500: var(--brass-500);
+  --accent-400: var(--brass-400);
+  --accent-300: var(--brass-300);
+
+  /* Waiting / on-hold (orange) — used by StatusBadge for ticket "waiting" states */
+  --hold-500: #f97316;
+  --hold-400: #fb923c;
+
+  /* Sentinel provisioning (purple) — uncommon, only in fleet provisioning lifecycle */
+  --provision-500: #a855f7;
+  --provision-400: #c084fc;
+
+  /* ====================================================================
+     SEMANTIC TOKENS
+     What the design SAYS, not what color the design IS.
+     ==================================================================== */
+
+  /* Surfaces */
+  --bg-app:          var(--gray-950);  /* the whole page */
+  --bg-surface:      var(--gray-900);  /* cards, panels, sidebar */
+  --bg-surface-2:    var(--gray-850);  /* nested cards, table row hover, input */
+  --bg-surface-3:    var(--gray-800);  /* sticky table heads, inset wells */
+  --bg-overlay:      rgba(0, 0, 0, 0.5);  /* modal scrim */
+
+  /* Borders */
+  --border-subtle:   var(--gray-800);  /* default card border */
+  --border-default:  var(--gray-700);  /* divider, input border */
+  --border-strong:   var(--gray-600);  /* hover state */
+  --border-focus:    var(--blue-500);  /* focused input */
+
+  /* Foreground */
+  --fg-1: var(--gray-50);   /* primary headings */
+  --fg-2: var(--gray-100);  /* body */
+  --fg-3: var(--gray-300);  /* secondary body */
+  --fg-4: var(--gray-400);  /* labels, meta */
+  --fg-5: var(--gray-500);  /* placeholder, hint */
+  --fg-6: var(--gray-600);  /* disabled */
+
+  /* Brand */
+  --brand:        var(--blue-400);
+  --brand-strong: var(--blue-500);
+  --brand-soft:   color-mix(in oklab, var(--blue-500) 15%, transparent);
+  --brand-ring:   color-mix(in oklab, var(--blue-500) 35%, transparent);
+
+  /* Accent */
+  --accent:        var(--brass-300);
+  --accent-strong: var(--brass-400);
+  --accent-soft:   color-mix(in oklab, var(--brass-400) 15%, transparent);
+
+  /* Semantic ribbons — used in `tone` props (urgent/warn/ok/info/accent/neutral) */
+  --tone-urgent-fg:     var(--urgent-300);
+  --tone-urgent-rule:   var(--urgent-500);
+  --tone-urgent-soft:   rgba(239, 68, 68, 0.12);
+  --tone-warn-fg:       var(--warn-300);
+  --tone-warn-rule:     var(--warn-500);
+  --tone-warn-soft:     rgba(245, 158, 11, 0.10);
+  --tone-ok-fg:         var(--ok-300);
+  --tone-ok-rule:       var(--ok-500);
+  --tone-ok-soft:       rgba(34, 197, 94, 0.10);
+  --tone-info-fg:       var(--info-400);
+  --tone-info-rule:     var(--info-500);
+  --tone-info-soft:     rgba(59, 130, 246, 0.12);
+  --tone-accent-fg:     var(--brass-300);
+  --tone-accent-rule:   var(--brass-400);
+  --tone-accent-soft:   rgba(201, 165, 72, 0.10);
+  --tone-neutral-fg:    var(--gray-200);
+  --tone-neutral-rule:  var(--gray-600);
+  --tone-neutral-soft:  rgba(255, 255, 255, 0.02);
+
+  /* ====================================================================
+     TYPOGRAPHY
+     ==================================================================== */
+
+  --font-sans:    'Geist', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono:    'Geist Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  /* Numeric: identical glyphs to sans but with tabular-nums enforced.
+     Apply via `font-feature-settings: "tnum"` on `.font-numeric`. */
+  --font-numeric: 'Geist', ui-sans-serif, system-ui, sans-serif;
+
+  --weight-normal:   400;
+  --weight-medium:   500;
+  --weight-semibold: 600;
+  --weight-bold:     700;
+
+  /* Tight, instrument-feeling tracking */
+  --tracking-eyebrow: 0.08em;   /* uppercase labels — ".text-[11px] uppercase tracking-wider" pattern */
+  --tracking-tight:   -0.01em;
+  --tracking-normal:  0;
+
+  /* Type sizes (rem-based, 16px root) */
+  --t-h1:        1.25rem;   /* 20px — page title  ("Command Center") */
+  --t-h2:        1rem;      /* 16px — section heads */
+  --t-eyebrow:   0.6875rem; /* 11px — uppercase tracking labels */
+  --t-body:      0.875rem;  /* 14px — default body / table cell */
+  --t-body-sm:   0.8125rem; /* 13px — nav items */
+  --t-meta:      0.75rem;   /* 12px — labels, hints */
+  --t-micro:     0.6875rem; /* 11px — sub-meta, count chips */
+  --t-tiny:      0.625rem;  /* 10px — version pill, status crumbs */
+  --t-stat-sm:   1.875rem;  /* 30px — StatCard value */
+  --t-stat-lg:   3rem;      /* 48px — StatCard size="lg" */
+  --t-kpi:       1.5rem;    /* 24px — MetricStrip value */
+
+  --line-tight:   1.15;
+  --line-snug:    1.3;
+  --line-normal:  1.5;
+
+  /* ====================================================================
+     SPACE / RADIUS / ELEVATION
+     Tailwind-compatible scale (multiples of 4px).
+     ==================================================================== */
+
+  --space-0:  0;
+  --space-1:  0.25rem;  /*  4px */
+  --space-2:  0.5rem;   /*  8px */
+  --space-3:  0.75rem;  /* 12px */
+  --space-4:  1rem;     /* 16px */
+  --space-5:  1.25rem;  /* 20px */
+  --space-6:  1.5rem;   /* 24px */
+  --space-8:  2rem;     /* 32px */
+  --space-10: 2.5rem;   /* 40px */
+  --space-12: 3rem;     /* 48px */
+
+  /* Radii — small. NOCOS doesn't pill anything; cards are rectilinear. */
+  --radius-none: 0;
+  --radius-sm:   3px;    /* badges, micro chips */
+  --radius-md:   6px;    /* default — buttons, inputs */
+  --radius-lg:   8px;    /* cards */
+  --radius-xl:   12px;   /* modal, command palette */
+  --radius-pill: 9999px; /* status dots */
+
+  /* Shadow — minimal. Dark UI relies on borders, not shadows.
+     Heavy shadows only on floating layers (modal, popover). */
+  --shadow-none: none;
+  --shadow-sm:   0 1px 0 rgba(0, 0, 0, 0.4);
+  --shadow-md:   0 4px 12px rgba(0, 0, 0, 0.45);
+  --shadow-lg:   0 20px 50px rgba(0, 0, 0, 0.55);
+  --shadow-ring: 0 0 0 1px var(--brand-ring);
+  --shadow-inner-rule: inset 0 -1px 0 var(--border-subtle);
+}
+
+/* ============================================================================
+   SEMANTIC ELEMENT STYLES
+   Plain HTML tags pick up sensible NOCOS defaults.
+   ============================================================================ */
+
+html, body {
+  background: var(--bg-app);
+  color: var(--fg-2);
+  font-family: var(--font-sans);
+  font-size: var(--t-body);
+  line-height: var(--line-normal);
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: 'ss01', 'cv11';  /* tabular figures, alt 'a' */
+}
+
+h1 {
+  font-size: var(--t-h1);
+  font-weight: var(--weight-semibold);
+  color: var(--fg-1);
+  letter-spacing: var(--tracking-tight);
+  line-height: var(--line-tight);
+}
+
+h2 {
+  font-size: var(--t-h2);
+  font-weight: var(--weight-medium);
+  color: var(--fg-2);
+  line-height: var(--line-snug);
+}
+
+/* Eyebrow / overline — uppercase tracked labels above section heads */
+.eyebrow,
+h3.eyebrow {
+  font-size: var(--t-eyebrow);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-eyebrow);
+  color: var(--fg-4);
+}
+
+p {
+  font-size: var(--t-body);
+  color: var(--fg-3);
+}
+
+code, kbd, samp, .font-mono {
+  font-family: var(--font-mono);
+  font-size: 0.95em;
+}
+
+.font-numeric {
+  font-family: var(--font-numeric);
+  font-feature-settings: 'tnum' 1, 'cv11' 1;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Default sans for everything else */
+.font-sans {
+  font-family: var(--font-sans);
+}
+
+/* ============================================================================
+   COMPONENT PRIMITIVES referenced by codebase but undefined upstream
+   ============================================================================ */
+
+/* atlas-card — the recurring card chrome in MetricStrip / EntityContextBar */
+.atlas-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+}
+
+.atlas-card-raised {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+}
+
+/* atlas-skeleton — shimmer used while data is loading */
+.atlas-skeleton {
+  background: linear-gradient(90deg, var(--gray-800) 0%, var(--gray-700) 50%, var(--gray-800) 100%);
+  background-size: 200% 100%;
+  border-radius: var(--radius-sm);
+  animation: atlas-shimmer 1.6s linear infinite;
+}
+@keyframes atlas-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ============================================================================
+   SCROLLBAR — matches frontend/src/data/styles.css `.nocos-scrollbar`
+   ============================================================================ */
+.nocos-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(96, 165, 250, 0.38) rgba(15, 23, 42, 0.34);
+}
+.nocos-scrollbar::-webkit-scrollbar          { width: 10px; height: 10px; }
+.nocos-scrollbar::-webkit-scrollbar-track    { background: rgba(15, 23, 42, 0.34); border-radius: 999px; }
+.nocos-scrollbar::-webkit-scrollbar-thumb    {
+  background: linear-gradient(180deg, rgba(96, 165, 250, 0.36), rgba(75, 85, 99, 0.72));
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+}
+.nocos-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(147, 197, 253, 0.6), rgba(107, 114, 128, 0.88));
+  background-clip: padding-box;
+}
+
+/* ============================================================================
+   COSMIC BRAND SURFACE
+   Use ONLY on Login, splash, marketing artifacts. Never inside the
+   Operations Console — the operator UI must stay instrument-flat.
+   ============================================================================ */
+
+/* Full-bleed cosmic background. Star-field gradient layered over the deep
+   indigo base. Use as the body background on brand surfaces. */
+.nocos-cosmic-bg {
+  background:
+    radial-gradient(ellipse 80% 50% at 50% 40%, rgba(217, 70, 239, 0.18), transparent 60%),
+    radial-gradient(ellipse 60% 40% at 50% 50%, rgba(34, 211, 238, 0.20), transparent 65%),
+    radial-gradient(circle at 20% 80%, rgba(124, 58, 237, 0.18), transparent 50%),
+    radial-gradient(circle at 80% 20%, rgba(34, 211, 238, 0.10), transparent 50%),
+    var(--cosmic-bg-1);
+  position: relative;
+  overflow: hidden;
+}
+/* Star-field via box-shadow dots; layered above the gradient. */
+.nocos-cosmic-bg::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(1px 1px at 12% 18%,  rgba(255,255,255,0.7), transparent),
+    radial-gradient(1px 1px at 78% 32%,  rgba(255,255,255,0.5), transparent),
+    radial-gradient(1px 1px at 23% 67%,  rgba(255,255,255,0.6), transparent),
+    radial-gradient(1px 1px at 88% 78%,  rgba(255,255,255,0.4), transparent),
+    radial-gradient(1px 1px at 45% 12%,  rgba(255,255,255,0.5), transparent),
+    radial-gradient(1px 1px at 62% 88%,  rgba(255,255,255,0.6), transparent),
+    radial-gradient(1px 1px at 8%  44%,  rgba(255,255,255,0.4), transparent),
+    radial-gradient(1px 1px at 92% 52%,  rgba(255,255,255,0.5), transparent),
+    radial-gradient(2px 2px at 35% 35%,  rgba(217,70,239,0.6),  transparent),
+    radial-gradient(2px 2px at 70% 60%,  rgba(34,211,238,0.5),  transparent);
+  pointer-events: none;
+  opacity: 0.9;
+}
+
+/* Chrome-bevel wordmark — the silver-with-cyan-rim NOCOS treatment.
+   Apply to any element containing the literal text "NOCOS".
+   Uses background-clip:text for the silver gradient, and filter:drop-shadow
+   (NOT text-shadow — which paints the glyph alpha, invisible when filled
+   transparent) for the cyan halo. */
+.nocos-wordmark {
+  font-family: var(--font-sans);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  background: linear-gradient(180deg,
+    #ffffff 0%,
+    #e2e8f0 35%,
+    #94a3b8 55%,
+    #cbd5e1 75%,
+    #f8fafc 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  filter:
+    drop-shadow(0 0 8px  rgba(34, 211, 238, 0.55))
+    drop-shadow(0 0 18px rgba(34, 211, 238, 0.35))
+    drop-shadow(0 0 40px rgba(217, 70, 239, 0.25))
+    drop-shadow(0 1px 0  rgba(0,   0,   0,   0.5));
+}
+/* Fallback when background-clip:text isn't honored: solid silver text. */
+@supports not ((-webkit-background-clip: text) or (background-clip: text)) {
+  .nocos-wordmark { -webkit-text-fill-color: initial; color: #f1f5f9; background: none; }
+}
+
+/* Cyan-glow utility — text glow for accents on cosmic surfaces */
+.nocos-glow-cyan    { text-shadow: 0 0 10px rgba(34, 211, 238, 0.6),  0 0 20px rgba(34, 211, 238, 0.35); color: var(--cyan-300); }
+.nocos-glow-magenta { text-shadow: 0 0 10px rgba(217, 70, 239, 0.6),  0 0 20px rgba(217, 70, 239, 0.35); color: var(--magenta-300); }
+
+/* Glass panel — used on the cosmic surface for floating cards. Reads as
+   slightly translucent so the star-field still shows through. */
+.nocos-glass {
+  background: rgba(10, 6, 32, 0.55);
+  border: 1px solid rgba(34, 211, 238, 0.25);
+  backdrop-filter: blur(14px) saturate(1.4);
+  -webkit-backdrop-filter: blur(14px) saturate(1.4);
+  border-radius: var(--radius-lg);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.04) inset,
+    0 20px 60px rgba(0, 0, 0, 0.6),
+    0 0 40px rgba(34, 211, 238, 0.12);
+}
