@@ -121,8 +121,21 @@ async function start() {
   ensureDirectory(uploadsDir);
   app.use('/uploads', express.static(uploadsDir));
 
-  const clientDir = path.join(__dirname, '..', 'client');
-  app.use(express.static(clientDir));
+  // Serve the new NOCOS web/dist bundle when present (toggle off with
+  // CHAT_NEW_UI=false to fall back to the legacy client). The legacy client is
+  // always mounted too so its standalone pages (e.g. /admin.html) keep working.
+  const legacyClientDir = path.join(__dirname, '..', 'client');
+  const webDistDir = path.join(__dirname, '..', 'web', 'dist');
+  const useNewUi =
+    process.env.CHAT_NEW_UI !== 'false' && fs.existsSync(path.join(webDistDir, 'index.html'));
+  const spaIndex = useNewUi
+    ? path.join(webDistDir, 'index.html')
+    : path.join(legacyClientDir, 'index.html');
+
+  if (useNewUi) {
+    app.use(express.static(webDistDir));
+  }
+  app.use(express.static(legacyClientDir));
   app.use((req, res, next) => {
     if (
       req.method === 'GET' &&
@@ -131,7 +144,7 @@ async function start() {
       req.headers.accept &&
       req.headers.accept.includes('text/html')
     ) {
-      return res.sendFile(path.join(clientDir, 'index.html'));
+      return res.sendFile(spaIndex);
     }
     return next();
   });
