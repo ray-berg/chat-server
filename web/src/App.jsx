@@ -82,11 +82,19 @@ function Shell() {
     sendMessage,
     sendTyping,
     setPresence,
+    setAccent,
     respondApproval,
     startDirect,
     searchUsers,
     logout,
   } = chat;
+
+  // Apply the user's saved accent across the UI (components read var(--accent-color)).
+  React.useEffect(() => {
+    if (currentUser?.accentColor) {
+      document.documentElement.style.setProperty('--accent-color', currentUser.accentColor);
+    }
+  }, [currentUser?.accentColor]);
 
   const [railMode, setRailMode] = React.useState(null);
   const [threadSourceId, setThreadSourceId] = React.useState(null);
@@ -178,6 +186,9 @@ function Shell() {
         onComposeDm={() => setComposeOpen(true)}
         onSetPresence={setPresence}
         onLogout={logout}
+        onSetAccent={setAccent}
+        currentAccent={currentUser?.accentColor}
+        isAdmin={currentUser?.role === 'admin'}
         approvalsCount={(approvals.incoming || []).filter((a) => a.status === 'pending').length}
         onQuick={(q) => setRailMode((m) => (m === q ? null : q))}
       />

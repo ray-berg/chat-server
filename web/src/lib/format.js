@@ -44,6 +44,7 @@ export function mapUser(u) {
     manager: Boolean(u.manager),
     title: u.bio || '',
     avatarUrl: resolveAvatar(u),
+    accentColor: u.accentColor || '#3b82f6',
   };
 }
 

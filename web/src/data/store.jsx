@@ -212,6 +212,15 @@ export function ChatProvider({ children }) {
     [refreshApprovals],
   );
 
+  const setAccent = React.useCallback(async (accentColor) => {
+    setCurrentUser((u) => (u ? { ...u, accentColor } : u));
+    try {
+      await api.updateProfile({ accentColor });
+    } catch {
+      /* non-fatal; UI already reflects the choice */
+    }
+  }, []);
+
   const startDirect = React.useCallback(
     async (targetUserId) => {
       try {
@@ -384,6 +393,7 @@ export function ChatProvider({ children }) {
     sendMessage,
     sendTyping,
     setPresence,
+    setAccent,
     respondApproval,
     startDirect,
     searchUsers,

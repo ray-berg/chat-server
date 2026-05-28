@@ -354,7 +354,29 @@ function DirectRow({ ch, active, onSelect, usersById }) {
 
 const PRESENCE_LABEL = { online: 'Online', idle: 'Idle', away: 'Away', dnd: 'Do not disturb', offline: 'Offline' };
 
-function UserFooter({ user, onSetPresence, onLogout }) {
+const ACCENT_SWATCHES = [
+  { name: 'Blue', value: '#3b82f6' },
+  { name: 'Brass', value: '#c9a548' },
+  { name: 'Cyan', value: '#22d3ee' },
+  { name: 'Magenta', value: '#d946ef' },
+];
+
+const menuItemStyle = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  padding: '6px 8px',
+  background: 'transparent',
+  border: 'none',
+  color: 'var(--fg-3)',
+  cursor: 'pointer',
+  borderRadius: 4,
+  fontSize: 12,
+  textAlign: 'left',
+  width: '100%',
+};
+
+function UserFooter({ user, onSetPresence, onLogout, onSetAccent, currentAccent, isAdmin }) {
   const [open, setOpen] = React.useState(false);
   if (!user) return null;
   return (
@@ -444,25 +466,39 @@ function UserFooter({ user, onSetPresence, onLogout }) {
               </button>
             ))}
             <div style={{ height: 1, background: 'var(--border-subtle)', margin: '4px 0' }} />
-            <button
-              onClick={() => {
-                setOpen(false);
-                onLogout && onLogout();
-              }}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                padding: '6px 8px',
-                background: 'transparent',
-                border: 'none',
-                color: 'var(--fg-3)',
-                cursor: 'pointer',
-                borderRadius: 4,
-                fontSize: 12,
-                textAlign: 'left',
-              }}
-            >
+            <div style={{ padding: '4px 8px 6px' }}>
+              <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 'var(--tracking-eyebrow)', color: 'var(--fg-5)', marginBottom: 6 }}>Accent</div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {ACCENT_SWATCHES.map((a) => {
+                  const active = (currentAccent || '').toLowerCase() === a.value.toLowerCase();
+                  return (
+                    <button
+                      key={a.value}
+                      title={a.name}
+                      onClick={() => onSetAccent && onSetAccent(a.value)}
+                      style={{
+                        width: 20,
+                        height: 20,
+                        borderRadius: '50%',
+                        background: a.value,
+                        cursor: 'pointer',
+                        padding: 0,
+                        border: active ? '2px solid var(--fg-1)' : '2px solid transparent',
+                        boxShadow: active ? `0 0 0 1px ${a.value}` : 'none',
+                      }}
+                    />
+                  );
+                })}
+              </div>
+            </div>
+            <div style={{ height: 1, background: 'var(--border-subtle)', margin: '4px 0' }} />
+            {isAdmin && (
+              <a href="/admin.html" target="_blank" rel="noopener noreferrer" style={{ ...menuItemStyle, textDecoration: 'none' }}>
+                <Icon name="settings" size={12} />
+                Admin console
+              </a>
+            )}
+            <button onClick={() => { setOpen(false); onLogout && onLogout(); }} style={menuItemStyle}>
               <Icon name="logout" size={12} />
               Sign out
             </button>
@@ -485,6 +521,9 @@ export function ChannelList({
   onComposeDm,
   onSetPresence,
   onLogout,
+  onSetAccent,
+  currentAccent,
+  isAdmin,
   approvalsCount = 0,
   onQuick,
 }) {
@@ -604,7 +643,14 @@ export function ChannelList({
         />
       </div>
 
-      <UserFooter user={currentUser} onSetPresence={onSetPresence} onLogout={onLogout} />
+      <UserFooter
+        user={currentUser}
+        onSetPresence={onSetPresence}
+        onLogout={onLogout}
+        onSetAccent={onSetAccent}
+        currentAccent={currentAccent}
+        isAdmin={isAdmin}
+      />
     </aside>
   );
 }

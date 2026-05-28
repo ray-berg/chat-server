@@ -79,5 +79,6 @@ export const api = {
   approvals: (direction = 'all') => apiGet(`/api/approvals?direction=${direction}`),
   respondApproval: (id, decision) => apiPost(`/api/approvals/${id}/respond`, { decision }),
   setPresence: (presenceStatus) => apiPut('/api/users/me/profile', { presenceStatus }),
+  updateProfile: (patch) => apiPut('/api/users/me/profile', patch),
   myProfile: () => apiGet('/api/users/me/profile'),
 };
