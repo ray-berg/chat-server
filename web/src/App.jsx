@@ -6,6 +6,9 @@ import { ChatHeader } from './main/ChatHeader.jsx';
 import { Composer } from './main/Composer.jsx';
 import { MessageList } from './main/messages.jsx';
 import { RightRail } from './rail/RightRail.jsx';
+import { CommandPalette } from './modals/CommandPalette.jsx';
+import { HuddleFloater } from './modals/HuddleFloater.jsx';
+import { ComposeDm } from './modals/ComposeDm.jsx';
 import { Avatar, Button } from './components/atoms.jsx';
 import { Icon } from './icons.jsx';
 
@@ -80,10 +83,16 @@ function Shell() {
     sendTyping,
     setPresence,
     respondApproval,
+    startDirect,
+    searchUsers,
     logout,
   } = chat;
 
   const [railMode, setRailMode] = React.useState(null);
+  const [threadSourceId, setThreadSourceId] = React.useState(null);
+  const [paletteOpen, setPaletteOpen] = React.useState(false);
+  const [huddleOpen, setHuddleOpen] = React.useState(false);
+  const [composeOpen, setComposeOpen] = React.useState(false);
 
   // Auto-select a channel once data is loaded.
   React.useEffect(() => {
@@ -93,6 +102,22 @@ function Shell() {
     }
   }, [activeChannelId, channels, selectChannel]);
 
+  // Cmd/Ctrl-K opens the palette; Esc closes overlays.
+  React.useEffect(() => {
+    function onKey(e) {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setPaletteOpen((o) => !o);
+      }
+      if (e.key === 'Escape') {
+        setPaletteOpen(false);
+        setComposeOpen(false);
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   const workspaces = [{ id: 'ws', name: 'Chat Server', short: 'CS', accent: 'var(--blue-500)' }];
 
   const members = activeChannel?.members || [];
@@ -101,6 +126,43 @@ function Shell() {
   function toggleRail(mode) {
     setRailMode((m) => (m === mode ? null : mode));
   }
+
+  function openThread(messageId) {
+    setThreadSourceId(messageId);
+    setRailMode('thread');
+  }
+
+  async function openDirectWith(userId) {
+    const id = await startDirect(userId);
+    if (id) selectChannel(id);
+  }
+
+  // Command palette items: existing channels/DMs, people to DM, and actions.
+  const dmUserIds = new Set(channels.filter((c) => c.type === 'direct').map((c) => c.user));
+  const paletteItems = [
+    ...channels.map((c) => ({
+      kind: c.type === 'direct' ? 'dm' : 'channel',
+      id: c.id,
+      label: c.type === 'direct' ? c.name : `#${c.name}`,
+      hint: 'jump',
+    })),
+    ...Object.values(usersById)
+      .filter((u) => u && u.id !== currentUser?.id && !dmUserIds.has(u.id))
+      .map((u) => ({ kind: 'people', id: u.id, label: u.name, hint: 'DM' })),
+    { kind: 'action', id: 'compose', label: 'Start a DM…', hint: 'action' },
+    { kind: 'action', id: 'huddle', label: 'Start huddle', hint: 'action' },
+  ];
+
+  function onPaletteJump(item) {
+    if (item.kind === 'channel' || item.kind === 'dm') selectChannel(item.id);
+    else if (item.kind === 'people') openDirectWith(item.id);
+    else if (item.id === 'compose') setComposeOpen(true);
+    else if (item.id === 'huddle') setHuddleOpen(true);
+  }
+
+  const huddlePeople = [currentUser, ...members.map((id) => usersById[id]).filter(Boolean)]
+    .filter(Boolean)
+    .filter((u, i, arr) => arr.findIndex((x) => x.id === u.id) === i);
 
   return (
     <div style={{ display: 'flex', height: '100vh', minHeight: 0, width: '100vw', background: 'var(--bg-app)', color: 'var(--fg-2)', overflow: 'hidden' }}>
@@ -112,8 +174,8 @@ function Shell() {
         currentUser={currentUser}
         activeId={activeChannelId}
         onSelect={selectChannel}
-        onCmdK={() => {}}
-        onComposeDm={() => {}}
+        onCmdK={() => setPaletteOpen(true)}
+        onComposeDm={() => setComposeOpen(true)}
         onSetPresence={setPresence}
         onLogout={logout}
         approvalsCount={(approvals.incoming || []).filter((a) => a.status === 'pending').length}
@@ -130,10 +192,10 @@ function Shell() {
               onlineCount={onlineCount}
               railMode={railMode}
               onToggleRail={toggleRail}
-              onSearch={() => {}}
+              onSearch={() => setPaletteOpen(true)}
               onMembers={() => toggleRail('members')}
               onPinned={() => toggleRail('pinned')}
-              onHuddle={() => {}}
+              onHuddle={() => setHuddleOpen(true)}
             />
             {messages.length === 0 ? (
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
@@ -146,6 +208,7 @@ function Shell() {
                 usersById={usersById}
                 typing={typing}
                 thinking={thinking}
+                onOpenThread={openThread}
                 onRespondApproval={respondApproval}
                 density="comfortable"
               />
@@ -163,8 +226,21 @@ function Shell() {
         members={members}
         usersById={usersById}
         approvals={approvals}
+        messages={messages}
+        threadSourceId={threadSourceId}
         onRespondApproval={respondApproval}
+        onThreadSend={(text) => sendMessage(text)}
         onClose={() => setRailMode(null)}
+      />
+
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} palette={paletteItems} onJump={onPaletteJump} />
+      <HuddleFloater open={huddleOpen} onClose={() => setHuddleOpen(false)} channel={activeChannel} participants={huddlePeople} />
+      <ComposeDm
+        open={composeOpen}
+        onClose={() => setComposeOpen(false)}
+        searchUsers={searchUsers}
+        currentUserId={currentUser?.id}
+        onPicked={openDirectWith}
       />
     </div>
   );

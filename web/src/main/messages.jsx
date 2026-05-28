@@ -334,7 +334,7 @@ function AttachmentCard({ att }) {
   );
 }
 
-function MessageRun({ msg, usersById, isFirst, onOpenThread, onReact, onRespondApproval, density }) {
+export function MessageRun({ msg, usersById, isFirst, onOpenThread, onReact, onRespondApproval, density }) {
   const author = usersById[msg.author] || UNKNOWN;
   const [hovering, setHovering] = React.useState(false);
 

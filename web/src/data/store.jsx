@@ -212,6 +212,28 @@ export function ChatProvider({ children }) {
     [refreshApprovals],
   );
 
+  const startDirect = React.useCallback(
+    async (targetUserId) => {
+      try {
+        const res = await api.startDirect(targetUserId);
+        await refreshChannels();
+        return res.conversation?.id || null;
+      } catch {
+        return null;
+      }
+    },
+    [refreshChannels],
+  );
+
+  const searchUsers = React.useCallback(
+    async (q) => {
+      const res = await api.users(q).catch(() => ({ users: [] }));
+      mergeUsers(res.users || []);
+      return (res.users || []).map((u) => mapUser(u));
+    },
+    [mergeUsers],
+  );
+
   const noteTyping = React.useCallback((cid, uid, name, active) => {
     const key = `${cid}:${uid}`;
     if (typingTimers.current[key]) {
@@ -363,6 +385,8 @@ export function ChatProvider({ children }) {
     sendTyping,
     setPresence,
     respondApproval,
+    startDirect,
+    searchUsers,
     refreshChannels,
     doLogin,
     logout,
