@@ -38,7 +38,6 @@ function mapUser(row) {
     username: row.username,
     displayName: row.display_name || row.displayName,
     role: row.role,
-    bot: Boolean(row.bot),
     status: row.status,
     manager: Boolean(row.manager),
     avatarUrl: row.avatar_url || row.avatarUrl || DEFAULT_AVATARS[0],
@@ -61,7 +60,6 @@ function mapConversationMember(row) {
     id: row.id,
     displayName: row.displayName,
     role: row.role,
-    bot: Boolean(row.bot),
     avatarUrl: row.avatarUrl || DEFAULT_AVATARS[0],
     profilePhotoUrl: row.profilePhotoUrl || '',
     presenceStatus: row.presenceStatus || 'offline'
@@ -245,7 +243,7 @@ async function getUserWithPassword(id) {
   return rows[0] || null;
 }
 
-async function createUser({ username, passwordHash, displayName, role = 'user', manager = false, bot = false }) {
+async function createUser({ username, passwordHash, displayName, role = 'user', manager = false }) {
   const conn = getPool();
   const id = randomUUID();
   const now = new Date();
@@ -257,7 +255,6 @@ async function createUser({ username, passwordHash, displayName, role = 'user', 
       password_hash,
       display_name,
       role,
-      bot,
       status,
       manager,
       manager_token,
@@ -274,23 +271,8 @@ async function createUser({ username, passwordHash, displayName, role = 'user', 
       created_at,
       updated_at
     )
-     VALUES (
-      ?, ?, ?, ?, ?, ?, 'active', ?, '', ?, '', NULL, 'light', '#2563eb', 'offline', ?, '', ?, NULL, ?, ?
-    )`,
-    [
-      id,
-      username,
-      passwordHash,
-      displayName,
-      role,
-      bot ? 1 : 0,
-      manager ? 1 : 0,
-      avatarUrl,
-      now,
-      5,
-      now,
-      now
-    ]
+     VALUES (?, ?, ?, ?, ?, 'active', ?, '', ?, '', NULL, 'light', '#2563eb', 'offline', ?, '', NULL, ?, ?)`,
+    [id, username, passwordHash, displayName, role, manager ? 1 : 0, avatarUrl, now, now, 5, now, now]
   );
   return getUserById(id);
 }
@@ -377,7 +359,6 @@ async function listUsers({ query = '', limit = 50 } = {}) {
        username,
        display_name AS displayName,
        role,
-       bot,
        status,
        manager,
        avatar_url AS avatarUrl,
@@ -396,7 +377,6 @@ async function listUsers({ query = '', limit = 50 } = {}) {
     username: row.username,
     displayName: row.displayName,
     role: row.role,
-    bot: Boolean(row.bot),
     status: row.status,
     manager: Boolean(row.manager),
     avatarUrl: row.avatarUrl || DEFAULT_AVATARS[0],
@@ -407,7 +387,7 @@ async function listUsers({ query = '', limit = 50 } = {}) {
   }));
 }
 
-async function updateUserAccess(id, { role, status, manager, bot }) {
+async function updateUserAccess(id, { role, status, manager }) {
   const conn = getPool();
   const updates = [];
   const params = [];
@@ -422,10 +402,6 @@ async function updateUserAccess(id, { role, status, manager, bot }) {
   if (typeof manager !== 'undefined') {
     updates.push('manager = ?');
     params.push(manager ? 1 : 0);
-  }
-  if (typeof bot !== 'undefined') {
-    updates.push('bot = ?');
-    params.push(bot ? 1 : 0);
   }
   if (!updates.length) {
     return getUserById(id);
@@ -790,7 +766,6 @@ async function getMembersForConversationIds(conversationIds = []) {
        u.id,
        u.display_name AS displayName,
        u.role,
-       u.bot,
        u.avatar_url AS avatarUrl,
        u.profile_photo_url AS profilePhotoUrl,
        u.presence_status AS presenceStatus
@@ -890,7 +865,6 @@ async function listMessages(conversationId, { limit = 50, before } = {}) {
       u.id AS userId,
       u.display_name AS displayName,
       u.role,
-      u.bot,
       u.avatar_url AS avatarUrl,
       u.profile_photo_url AS profilePhotoUrl
     FROM messages m
@@ -913,7 +887,6 @@ async function listMessages(conversationId, { limit = 50, before } = {}) {
     userId: row.userId,
     displayName: row.displayName,
     role: row.role,
-    bot: Boolean(row.bot),
     avatarUrl: row.avatarUrl || DEFAULT_AVATARS[0],
     profilePhotoUrl: row.profilePhotoUrl || ''
   }));
@@ -939,7 +912,6 @@ async function createMessage({ conversationId, userId, content, format = 'text' 
        u.id AS userId,
        u.display_name AS displayName,
        u.role,
-       u.bot,
        u.avatar_url AS avatarUrl,
        u.profile_photo_url AS profilePhotoUrl
      FROM messages m
@@ -956,7 +928,6 @@ async function createMessage({ conversationId, userId, content, format = 'text' 
     userId: row.userId,
     displayName: row.displayName,
     role: row.role,
-    bot: Boolean(row.bot),
     avatarUrl: row.avatarUrl || DEFAULT_AVATARS[0],
     profilePhotoUrl: row.profilePhotoUrl || ''
   };
@@ -974,7 +945,7 @@ async function getStats() {
   };
 }
 
-async function createApprovalRequest({ requesterId, targetId, note, conversationId = null }) {
+async function createApprovalRequest({ requesterId, targetId, note }) {
   if (requesterId === targetId) {
     throw new Error('You cannot request approval from yourself');
   }
@@ -984,12 +955,6 @@ async function createApprovalRequest({ requesterId, targetId, note, conversation
   }
   if (!target.manager) {
     throw new Error('Approval target must be a manager');
-  }
-  if (conversationId) {
-    const member = await isMember(conversationId, requesterId);
-    if (!member) {
-      throw new Error('You are not a member of that conversation');
-    }
   }
   const conn = getPool();
   const [existing] = await conn.execute(
@@ -1003,9 +968,9 @@ async function createApprovalRequest({ requesterId, targetId, note, conversation
   const id = randomUUID();
   const now = new Date();
   await conn.execute(
-    `INSERT INTO approval_requests (id, requester_id, target_id, conversation_id, note, status, created_at)
-     VALUES (?, ?, ?, ?, ?, 'pending', ?)`,
-    [id, requesterId, targetId, conversationId || null, note || null, now]
+    `INSERT INTO approval_requests (id, requester_id, target_id, note, status, created_at)
+     VALUES (?, ?, ?, ?, 'pending', ?)`,
+    [id, requesterId, targetId, note || null, now]
   );
   return getApprovalRequestById(id);
 }
@@ -1037,7 +1002,6 @@ async function listApprovalRequestsForUser(userId, { direction = 'incoming' } = 
     id: row.id,
     requesterId: row.requester_id,
     targetId: row.target_id,
-    conversationId: row.conversation_id || null,
     requesterName: row.requesterName,
     requesterRole: row.requesterRole,
     targetName: row.targetName,
@@ -1070,7 +1034,6 @@ async function getApprovalRequestById(id) {
     id: row.id,
     requesterId: row.requester_id,
     targetId: row.target_id,
-    conversationId: row.conversation_id || null,
     requesterName: row.requesterName,
     requesterRole: row.requesterRole,
     targetName: row.targetName,
@@ -1101,26 +1064,6 @@ async function respondToApprovalRequest({ id, responderId, decision }) {
      SET status = ?, responded_at = ?
      WHERE id = ?`,
     [status, new Date(), id]
-  );
-  return getApprovalRequestById(id);
-}
-
-async function cancelApprovalRequest(id, requesterId) {
-  const conn = getPool();
-  const [rows] = await conn.execute('SELECT * FROM approval_requests WHERE id = ?', [id]);
-  const request = rows[0];
-  if (!request) {
-    throw new Error('Approval request not found');
-  }
-  if (request.requester_id !== requesterId) {
-    throw new Error('You can only cancel your own requests');
-  }
-  if (request.status !== 'pending') {
-    throw new Error('Only pending requests can be cancelled');
-  }
-  await conn.execute(
-    `UPDATE approval_requests SET status = 'denied', responded_at = ? WHERE id = ?`,
-    [new Date(), id]
   );
   return getApprovalRequestById(id);
 }
@@ -1167,55 +1110,6 @@ async function listAuditLogs({ limit = 100 } = {}) {
   }));
 }
 
-async function checkDbHealth() {
-  const conn = getPool();
-  const [[result]] = await conn.execute('SELECT 1 AS ok');
-  return result.ok === 1;
-}
-
-async function closePool() {
-  const conn = getPool();
-  if (conn) {
-    await conn.end();
-  }
-}
-
-async function markMessagesRead(conversationId, userId, messageId) {
-  const conn = getPool();
-  const id = randomUUID();
-  const now = new Date();
-  await conn.execute(
-    `INSERT INTO message_reads (id, conversation_id, user_id, last_read_message_id, read_at)
-     VALUES (?, ?, ?, ?, ?)
-     ON DUPLICATE KEY UPDATE last_read_message_id = VALUES(last_read_message_id), read_at = VALUES(read_at)`,
-    [id, conversationId, userId, messageId, now]
-  );
-  return { conversationId, userId, messageId, readAt: now.toISOString() };
-}
-
-async function getReadReceipts(conversationId) {
-  const conn = getPool();
-  const [rows] = await conn.execute(
-    `SELECT
-       mr.user_id AS userId,
-       mr.last_read_message_id AS lastReadMessageId,
-       mr.read_at AS readAt,
-       u.display_name AS displayName,
-       u.bot
-     FROM message_reads mr
-     JOIN users u ON u.id = mr.user_id
-     WHERE mr.conversation_id = ? AND u.bot = 1`,
-    [conversationId]
-  );
-  return rows.map((row) => ({
-    userId: row.userId,
-    lastReadMessageId: row.lastReadMessageId,
-    readAt: iso(row.readAt),
-    displayName: row.displayName,
-    bot: Boolean(row.bot)
-  }));
-}
-
 module.exports = {
   initDb,
   createUser,
@@ -1255,12 +1149,7 @@ module.exports = {
   createApprovalRequest,
   listApprovalRequestsForUser,
   respondToApprovalRequest,
-  cancelApprovalRequest,
   getApprovalRequestById,
   recordAuditLog,
-  listAuditLogs,
-  checkDbHealth,
-  closePool,
-  markMessagesRead,
-  getReadReceipts
+  listAuditLogs
 };

@@ -5,11 +5,9 @@ const {
   createApprovalRequest,
   listApprovalRequestsForUser,
   respondToApprovalRequest,
-  cancelApprovalRequest,
   createOrGetDirectConversation,
   createMessage,
-  getUserWithPassword,
-  isMember
+  getUserWithPassword
 } = require('../db');
 const events = require('../events');
 
@@ -18,8 +16,7 @@ router.use(authenticateRequest);
 
 const createSchema = z.object({
   targetUserId: z.string().uuid(),
-  note: z.string().max(500).optional(),
-  conversationId: z.string().uuid().optional()
+  note: z.string().max(500).optional()
 });
 
 router.get('/', async (req, res) => {
@@ -36,18 +33,10 @@ router.post('/', async (req, res) => {
     return res.status(400).json({ error: 'Invalid payload', details: parse.error.errors });
   }
   try {
-    let conversationId = parse.data.conversationId || null;
-    if (conversationId) {
-      const member = await isMember(conversationId, req.user.id);
-      if (!member) {
-        return res.status(400).json({ error: 'You must be in the conversation to reference it' });
-      }
-    }
     const request = await createApprovalRequest({
       requesterId: req.user.id,
       targetId: parse.data.targetUserId,
-      note: parse.data.note?.trim(),
-      conversationId
+      note: parse.data.note?.trim()
     });
     events.emit('approval:updated', { request });
     return res.status(201).json({ request });
@@ -86,37 +75,20 @@ router.post('/:id/respond', async (req, res) => {
     });
     events.emit('approval:updated', { request });
     if (request.status === 'approved') {
-      let deliveryConversationId = null;
-      if (request.conversationId && (await isMember(request.conversationId, req.user.id))) {
-        deliveryConversationId = request.conversationId;
-      }
-      if (!deliveryConversationId) {
-        const { conversation } = await createOrGetDirectConversation(
-          req.user.id,
-          request.requesterId
-        );
-        deliveryConversationId = conversation.id;
-      }
+      const { conversation } = await createOrGetDirectConversation(
+        req.user.id,
+        request.requesterId
+      );
       const message = await createMessage({
-        conversationId: deliveryConversationId,
+        conversationId: conversation.id,
         userId: req.user.id,
         content: approvalToken
       });
-      events.emit('message:created', { conversationId: deliveryConversationId, message });
+      events.emit('message:created', { conversationId: conversation.id, message });
     }
     return res.json({ request });
   } catch (error) {
     return res.status(400).json({ error: error.message || 'Unable to respond to request' });
-  }
-});
-
-router.delete('/:id', async (req, res) => {
-  try {
-    const request = await cancelApprovalRequest(req.params.id, req.user.id);
-    events.emit('approval:updated', { request });
-    return res.json({ request });
-  } catch (error) {
-    return res.status(400).json({ error: error.message });
   }
 });
 

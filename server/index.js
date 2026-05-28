@@ -8,7 +8,8 @@ const cors = require('cors');
 const morgan = require('morgan');
 const selfsigned = require('selfsigned');
 const config = require('./config');
-const { initDb, checkDbHealth, closePool } = require('./db');
+console.log(config.debug);
+const { initDb } = require('./db');
 const authRoutes = require('./routes/auth');
 const conversationRoutes = require('./routes/conversations');
 const userRoutes = require('./routes/users');
@@ -17,27 +18,6 @@ const approvalRoutes = require('./routes/approvals');
 const roomRoutes = require('./routes/rooms');
 const uploadRoutes = require('./routes/uploads');
 const { setupWebsocket } = require('./ws');
-
-function logStartupSummary() {
-  const summary = [
-    ['port', config.port],
-    ['ssl', config.ssl.enabled ? 'enabled' : 'disabled'],
-    ['allowedOrigins', (config.cors.allowedOrigins || []).join(', ') || '*'],
-    ['debugLogging', config.debug.enabled ? `enabled (${config.debug.logPath})` : 'disabled'],
-    [
-      'envFiles',
-      config.loadedEnvFiles && config.loadedEnvFiles.length
-        ? config.loadedEnvFiles.join(', ')
-        : 'none'
-    ]
-  ];
-  // eslint-disable-next-line no-console
-  console.log('[startup] configuration summary:');
-  summary.forEach(([label, value]) => {
-    // eslint-disable-next-line no-console
-    console.log(`  - ${label}: ${value}`);
-  });
-}
 
 async function start() {
   await initDb();
@@ -100,13 +80,8 @@ async function start() {
     return next(err);
   });
 
-  app.get('/health', async (req, res) => {
-    try {
-      const dbOk = await checkDbHealth();
-      res.json({ ok: true, uptime: process.uptime(), database: dbOk ? 'connected' : 'error' });
-    } catch (err) {
-      res.status(503).json({ ok: false, uptime: process.uptime(), database: 'disconnected', error: err.message });
-    }
+  app.get('/health', (req, res) => {
+    res.json({ ok: true, uptime: process.uptime() });
   });
 
   app.use('/api/auth', authRoutes);
@@ -138,8 +113,7 @@ async function start() {
 
   app.use((req, res) => res.status(404).json({ error: 'Not found' }));
 
-  server = createServer(app);
-  logStartupSummary();
+  const server = createServer(app);
   // eslint-disable-next-line no-console
   console.log('[config] debugMode=%s logPath=%s port=%s env=%s', config.debug.enabled, config.debug.logPath, config.port, process.env.NODE_ENV || 'development');
   setupWebsocket(server);
@@ -192,54 +166,6 @@ function generateSelfSigned() {
 function ensureDirectory(dir) {
   fs.mkdirSync(dir, { recursive: true });
 }
-
-// Global error handlers
-process.on('unhandledRejection', (reason, promise) => {
-  // eslint-disable-next-line no-console
-  console.error('[error] Unhandled Promise Rejection:', reason);
-});
-
-process.on('uncaughtException', (error) => {
-  // eslint-disable-next-line no-console
-  console.error('[error] Uncaught Exception:', error);
-  process.exit(1);
-});
-
-// Graceful shutdown
-let server = null;
-
-async function gracefulShutdown(signal) {
-  // eslint-disable-next-line no-console
-  console.log(`[shutdown] ${signal} received, shutting down gracefully...`);
-
-  if (server) {
-    server.close(async () => {
-      // eslint-disable-next-line no-console
-      console.log('[shutdown] HTTP server closed');
-      try {
-        await closePool();
-        // eslint-disable-next-line no-console
-        console.log('[shutdown] Database pool closed');
-      } catch (err) {
-        // eslint-disable-next-line no-console
-        console.error('[shutdown] Error closing database pool:', err.message);
-      }
-      process.exit(0);
-    });
-
-    // Force exit after 10 seconds if graceful shutdown fails
-    setTimeout(() => {
-      // eslint-disable-next-line no-console
-      console.error('[shutdown] Forced exit after timeout');
-      process.exit(1);
-    }, 10000);
-  } else {
-    process.exit(0);
-  }
-}
-
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 start().catch((error) => {
   // eslint-disable-next-line no-console

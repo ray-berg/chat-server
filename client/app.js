@@ -24,23 +24,12 @@ const DEFAULT_CHAT_VOLUME = 0.7;
 const storedVolume = Number(localStorage.getItem('chat_volume'));
 const initialVolume = Number.isFinite(storedVolume) ? Math.min(1, Math.max(0, storedVolume)) : DEFAULT_CHAT_VOLUME;
 
-function loadHiddenConversations() {
-  try {
-    const stored = localStorage.getItem('hidden_conversations');
-    return stored ? new Set(JSON.parse(stored)) : new Set();
-  } catch {
-    return new Set();
-  }
-}
-
 const state = {
   token: localStorage.getItem('chat_token'),
   user: null,
   conversations: [],
   rooms: [],
   roomRequests: new Map(),
-  approvalsIncoming: [],
-  approvalsOutgoing: [],
   activeConversationId: null,
   messageCache: new Map(),
   socket: null,
@@ -49,13 +38,8 @@ const state = {
   presence: new Map(),
   typing: new Map(),
   thinking: new Map(),
-  botReadReceipts: new Map(), // conversationId -> { oderId, messageId }
   chatVolume: initialVolume,
-  view: 'chat',
-  hiddenConversations: loadHiddenConversations(),
-  showHiddenConversations: false,
-  markdownMode: false,
-  serverInstanceId: null
+  view: 'chat'
 };
 
 const ROLE_LABELS = {
@@ -69,15 +53,11 @@ const el = {
   authPanel: document.getElementById('authPanel'),
   chatApp: document.getElementById('chatApp'),
   loginForm: document.getElementById('loginForm'),
+  registerForm: document.getElementById('registerForm'),
   currentUserName: document.getElementById('currentUserName'),
   currentUserRole: document.getElementById('currentUserRole'),
   currentUserAvatar: document.getElementById('currentUserAvatar'),
   currentUserPresence: document.getElementById('currentUserPresence'),
-  mobileUserAvatar: document.getElementById('mobileUserAvatar'),
-  menuToggle: document.getElementById('menuToggle'),
-  closeSidebar: document.getElementById('closeSidebar'),
-  sidebar: document.getElementById('sidebar'),
-  sidebarBackdrop: document.getElementById('sidebarBackdrop'),
   logoutBtn: document.getElementById('logoutBtn'),
   openProfile: document.getElementById('openProfile'),
   conversationList: document.getElementById('conversationList'),
@@ -89,7 +69,6 @@ const el = {
   messageList: document.getElementById('messageList'),
   messageForm: document.getElementById('messageForm'),
   messageInput: document.getElementById('messageInput'),
-  markdownToggle: document.getElementById('markdownToggle'),
   userSearch: document.getElementById('userSearch'),
   userResults: document.getElementById('userResults'),
   connectionState: document.getElementById('connectionState'),
@@ -120,14 +99,7 @@ const el = {
   dndToggle: document.getElementById('toggleDnd'),
   pageFooter: document.getElementById('appFooter'),
   toast: document.getElementById('toast'),
-  chatVolume: document.getElementById('chatVolume'),
-  approvalsPanel: document.getElementById('approvalsPanel'),
-  incomingApprovalCount: document.getElementById('incomingApprovalCount'),
-  outgoingApprovalCount: document.getElementById('outgoingApprovalCount'),
-  reviewApprovalsBtn: document.getElementById('reviewApprovalsBtn'),
-  newApprovalBtn: document.getElementById('newApprovalBtn'),
-  refreshApprovals: document.getElementById('refreshApprovals'),
-  approvalsAlertBadge: document.getElementById('approvalsAlertBadge')
+  chatVolume: document.getElementById('chatVolume')
 };
 
 const TYPING_EXPIRATION_MS = 4000;
@@ -137,7 +109,6 @@ let selfTypingTimeout = null;
 let selfTypingConversationId = null;
 let audioContext = null;
 let audioMasterGain = null;
-let approvalsAlertTimer = null;
 
 function escapeHtml(text = '') {
   const div = document.createElement('div');
@@ -215,39 +186,44 @@ function renderPlainTextContent(text = '') {
   return blocks.map((block) => `<p>${block || '&nbsp;'}</p>`).join('');
 }
 
-// Configure marked.js for safe rendering
-if (typeof marked !== 'undefined') {
-  marked.setOptions({
-    breaks: true,
-    gfm: true,
-    headerIds: false,
-    mangle: false
-  });
-}
-
 function renderMarkdownContent(text = '') {
-  if (typeof marked === 'undefined') {
-    // Fallback if marked.js not loaded
-    return renderPlainTextContent(text);
-  }
-  try {
-    // Use marked.js to parse markdown
-    const html = marked.parse(text);
-    // Sanitize links to ensure they use safe protocols
-    return html.replace(
-      /<a\s+href="([^"]*)"([^>]*)>/g,
-      (match, href, rest) => {
-        const safeUrl = sanitizeUrl(href);
-        if (!safeUrl) {
-          return '<a' + rest + '>';
-        }
-        return `<a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener"${rest}>`;
+  const escaped = escapeHtml(text);
+  const withBlocks = escaped.replace(/```([\s\S]+?)```/g, (match, code) => {
+    const normalized = code.replace(/^\n+|\n+$/g, '');
+    return `\n\n<pre><code>${normalized}</code></pre>\n\n`;
+  });
+  const withInlineCode = withBlocks.replace(/`([^`]+)`/g, '<code>$1</code>');
+  const withBold = withInlineCode
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/__(.+?)__/g, '<strong>$1</strong>');
+  const withItalics = withBold
+    .replace(/(^|[\s>])\*(.+?)\*(?=[\s<]|$)/g, (_, prefix, value) => `${prefix}<em>${value}</em>`)
+    .replace(/(^|[\s>])_(.+?)_(?=[\s<]|$)/g, (_, prefix, value) => `${prefix}<em>${value}</em>`);
+  const withStrike = withItalics.replace(/~~(.+?)~~/g, '<del>$1</del>');
+  const withLinks = withStrike.replace(
+    /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+    (match, label, href) => {
+      const decodedUrl = decodeEntities(href);
+      const safeUrl = sanitizeUrl(decodedUrl);
+      if (!safeUrl) {
+        return label;
       }
-    );
-  } catch (err) {
-    // Fallback on error
-    return renderPlainTextContent(text);
-  }
+      return `<a href="${escapeHtml(safeUrl)}" target="_blank" rel="noopener">${label}</a>`;
+    }
+  );
+  const segments = withLinks.split(/\n{2,}/).map((segment) => segment.replace(/\n/g, '<br />'));
+  return segments
+    .map((segment) => {
+      if (!segment) {
+        return '<p>&nbsp;</p>';
+      }
+      const trimmed = segment.trim();
+      if (trimmed.startsWith('<pre><code>') && trimmed.endsWith('</code></pre>')) {
+        return trimmed;
+      }
+      return `<p>${segment}</p>`;
+    })
+    .join('');
 }
 
 function renderMessageContent(message) {
@@ -515,45 +491,6 @@ function handleTypingUpdate(payload) {
   }
 }
 
-function handleReadReceipt(payload) {
-  if (!payload || !payload.conversationId || !payload.messageId) {
-    return;
-  }
-  const { conversationId, userId, messageId } = payload;
-  // Store the last read message ID for this bot in this conversation
-  if (!state.botReadReceipts.has(conversationId)) {
-    state.botReadReceipts.set(conversationId, new Map());
-  }
-  state.botReadReceipts.get(conversationId).set(userId, messageId);
-  // Re-render messages if viewing this conversation
-  if (state.activeConversationId === conversationId) {
-    renderMessages();
-  }
-}
-
-function getMessageReadStatus(conversationId, messageId, senderId) {
-  // Only show read status for messages sent by the current user
-  if (!state.user || senderId !== state.user.id) {
-    return null;
-  }
-  const receipts = state.botReadReceipts.get(conversationId);
-  if (!receipts || receipts.size === 0) {
-    return 'sent'; // No bot has read any messages yet
-  }
-  // Check if any bot has read up to or past this message
-  const messages = state.messageCache.get(conversationId) || [];
-  const msgIndex = messages.findIndex((m) => m.id === messageId);
-  if (msgIndex === -1) return 'sent';
-
-  for (const [botId, lastReadId] of receipts) {
-    const readIndex = messages.findIndex((m) => m.id === lastReadId);
-    if (readIndex >= msgIndex) {
-      return 'seen'; // Bot has read this message
-    }
-  }
-  return 'sent';
-}
-
 function socketIsOpen() {
   return state.socket && state.socket.readyState === WebSocket.OPEN;
 }
@@ -751,9 +688,6 @@ function updateUserCard() {
   el.currentUserName.textContent = state.user.displayName;
   el.currentUserRole.innerHTML = `@${escapeHtml(state.user.username)} ${renderRoleBadge(state.user.role)}`;
   el.currentUserAvatar.src = resolveAvatar(state.user.avatarUrl, state.user.profilePhotoUrl);
-  if (el.mobileUserAvatar) {
-    el.mobileUserAvatar.src = resolveAvatar(state.user.avatarUrl, state.user.profilePhotoUrl);
-  }
   updatePresenceBadge(state.user.presenceStatus);
   if (el.dndToggle) {
     const dndActive = state.user.presenceStatus === 'dnd';
@@ -791,8 +725,6 @@ function setView(view) {
   if (view === 'profile') {
     loadProfile(true);
   }
-  // Close sidebar on mobile when view changes
-  closeSidebar();
 }
 
 function populateAvatarChoices() {
@@ -933,12 +865,37 @@ async function handleLogin(event) {
   }
 }
 
+async function handleRegister(event) {
+  event.preventDefault();
+  const form = new FormData(event.target);
+  try {
+    const res = await fetch('/api/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: form.get('username'),
+        password: form.get('password'),
+        displayName: form.get('displayName')
+      })
+    }).then(async (resp) => {
+      if (!resp.ok) {
+        const body = await resp.json().catch(() => ({}));
+        throw new Error(body.error || 'Registration failed');
+      }
+      return resp.json();
+    });
+    await bootstrapSession(res.token, res.user);
+  } catch (error) {
+    showToast(error.message || 'Unable to register', 'error');
+  }
+}
+
 async function bootstrapSession(token, user) {
   setToken(token);
   state.user = user;
   updateUserCard();
   updateShellVisibility();
-  await Promise.all([loadConversations(), loadRooms(), loadApprovalsPanel(false)]);
+  await Promise.all([loadConversations(), loadRooms()]);
   await loadProfile(true);
   connectSocket();
 }
@@ -950,7 +907,7 @@ async function fetchCurrentUser() {
     state.user = res.user;
     updateUserCard();
     updateShellVisibility();
-    await Promise.all([loadConversations(), loadRooms(), loadApprovalsPanel(false)]);
+    await Promise.all([loadConversations(), loadRooms()]);
     await loadProfile(true);
     connectSocket();
   } catch (error) {
@@ -964,8 +921,6 @@ function logout() {
   state.conversations = [];
   state.rooms = [];
   state.activeConversationId = null;
-  state.approvalsIncoming = [];
-  state.approvalsOutgoing = [];
   state.messageCache.clear();
   state.presence.clear();
   resetSelfTyping();
@@ -988,9 +943,6 @@ function logout() {
   if (el.managerTokenGroup) {
     el.managerTokenGroup.classList.add('hidden');
   }
-  clearApprovalsAlert();
-  renderApprovalsPanel();
-  closeSidebar();
 }
 
 async function loadConversations() {
@@ -1094,44 +1046,13 @@ async function loadProfile(silent = false) {
   }
 }
 
-function saveHiddenConversations() {
-  try {
-    localStorage.setItem('hidden_conversations', JSON.stringify([...state.hiddenConversations]));
-  } catch {
-    // Ignore storage errors
-  }
-}
-
-function hideConversation(conversationId) {
-  state.hiddenConversations.add(conversationId);
-  saveHiddenConversations();
-  renderConversationList();
-  showToast('Conversation hidden', 'info');
-}
-
-function unhideConversation(conversationId) {
-  state.hiddenConversations.delete(conversationId);
-  saveHiddenConversations();
-  renderConversationList();
-  showToast('Conversation restored', 'info');
-}
-
-function toggleShowHiddenConversations() {
-  state.showHiddenConversations = !state.showHiddenConversations;
-  renderConversationList();
-}
-
 function renderConversationList() {
   if (!state.user) {
     el.conversationList.innerHTML = '';
     return;
   }
   const threads = state.conversations.filter((conversation) => conversation.type !== 'room');
-  const hiddenCount = threads.filter((c) => state.hiddenConversations.has(c.id)).length;
-  const visibleThreads = state.showHiddenConversations
-    ? threads
-    : threads.filter((c) => !state.hiddenConversations.has(c.id));
-  const list = visibleThreads
+  const list = threads
     .slice()
     .sort((a, b) => {
       const aTime = new Date(a.lastMessageAt || a.createdAt).getTime();
@@ -1139,7 +1060,6 @@ function renderConversationList() {
       return bTime - aTime;
     })
     .map((conversation) => {
-      const isHidden = state.hiddenConversations.has(conversation.id);
       const peers = (conversation.members || []).filter((member) => member.id !== state.user.id);
       const target = conversation.type === 'direct' ? peers[0] : null;
       const title =
@@ -1156,12 +1076,8 @@ function renderConversationList() {
       const avatarUrl = resolveAvatar(avatarTarget?.avatarUrl, avatarTarget?.profilePhotoUrl);
       const presenceCls = target ? presenceClass(target.presenceStatus) : 'offline';
       const presenceText = target ? formatPresence(target.presenceStatus) : '';
-      const hideBtn = isHidden
-        ? `<button class="conversation-action unhide-dm" data-id="${conversation.id}" title="Show conversation">↩</button>`
-        : `<button class="conversation-action hide-dm" data-id="${conversation.id}" title="Hide conversation">✕</button>`;
-      const hiddenClass = isHidden ? ' hidden-conversation' : '';
       return `
-        <div class="conversation ${active}${hiddenClass}" data-id="${conversation.id}">
+        <div class="conversation ${active}" data-id="${conversation.id}">
           <img class="conversation-avatar" src="${avatarUrl}" alt="${escapeHtml(
         (avatarTarget && avatarTarget.displayName) || 'Conversation'
       )}" />
@@ -1170,17 +1086,11 @@ function renderConversationList() {
             <p>${escapeHtml(preview)}</p>
             ${target ? `<span class="presence-pill ${presenceCls}">${presenceText}</span>` : ''}
           </div>
-          ${hideBtn}
         </div>
       `;
     })
     .join('');
-  const hiddenToggle = hiddenCount > 0
-    ? `<button class="toggle-hidden-btn ghost small" id="toggleHiddenDMs">${
-        state.showHiddenConversations ? 'Hide' : 'Show'
-      } ${hiddenCount} hidden</button>`
-    : '';
-  el.conversationList.innerHTML = (list || '<p class="muted">No conversations yet.</p>') + hiddenToggle;
+  el.conversationList.innerHTML = list || '<p class="muted">No conversations yet.</p>';
 }
 
 function renderRoomList() {
@@ -1191,7 +1101,7 @@ function renderRoomList() {
   }
   const cards = state.rooms
     .map((room) => {
-      const isActive = state.activeConversationId === room.id;
+      const active = state.activeConversationId === room.id ? 'active' : '';
       const count = room.memberCount || 0;
       const countLabel = `${count} member${count === 1 ? '' : 's'}`;
       const membershipBadge = room.banned
@@ -1202,19 +1112,47 @@ function renderRoomList() {
       let actions = '';
       if (!room.banned) {
         if (room.isMember) {
-          actions = `<button class="ghost tiny enter-room" data-room="${room.id}">Open</button>`;
+          actions = `<button class="ghost enter-room" data-room="${room.id}">Open</button>`;
         } else if (room.isPublic) {
-          actions = `<button class="ghost tiny join-room" data-room="${room.id}">Join</button>`;
+          actions = `<button class="ghost join-room" data-room="${room.id}">Join</button>`;
         } else {
           const status = room.joinRequestStatus || '';
           if (status === 'pending') {
-            actions = '<button class="ghost tiny" disabled>Requested</button>';
+            actions = '<button class="ghost" disabled>Requested</button>';
           } else {
             const label = status === 'denied' ? 'Request again' : 'Request access';
-            actions = `<button class="ghost tiny request-room" data-room-action="request-access" data-room="${room.id}">${label}</button>`;
+            actions = `<button class="ghost request-room" data-room-action="request-access" data-room="${room.id}">${label}</button>`;
           }
         }
       }
+      const members = Array.isArray(room.members) ? room.members.slice() : [];
+      members.sort((a, b) => {
+        const rankDiff = presenceSortValue(a.presenceStatus) - presenceSortValue(b.presenceStatus);
+        if (rankDiff !== 0) {
+          return rankDiff;
+        }
+        return (a.displayName || '').localeCompare(b.displayName || '');
+      });
+      const memberChips = members.length
+        ? members
+            .map((member) => {
+              const statusCls = presenceClass(member.presenceStatus);
+              const statusText = formatPresence(member.presenceStatus);
+              const label = escapeHtml(member.displayName || 'Member');
+              const dmButton =
+                member.id && member.id !== state.user?.id
+                  ? `<button type="button" class="ghost tiny dm-user" data-user="${member.id}" title="Message ${label}">Message</button>`
+                  : '';
+              return `
+                <div class="room-member-chip">
+                  <span class="chip-name">${label}</span>
+                  <span class="presence-pill ${statusCls}">${statusText}</span>
+                  ${dmButton}
+                </div>
+              `;
+            })
+            .join('')
+        : '<p class="muted small">No members yet.</p>';
       const visibilityBadge = `<span class="room-visibility ${room.isPublic ? 'public' : 'private'}">${
         room.isPublic ? 'Public' : 'Private'
       }</span>`;
@@ -1222,86 +1160,40 @@ function renderRoomList() {
         canModerateRooms() && room.isMember && room.pendingRequestCount
           ? `<span class="room-badge requests">${room.pendingRequestCount} pending</span>`
           : '';
-      const badgeGroup = [visibilityBadge, membershipBadge, pendingCount].filter(Boolean).join('');
-      let detailsMarkup = '';
-      if (isActive) {
-        const members = Array.isArray(room.members) ? room.members.slice() : [];
-        members.sort((a, b) => {
-          const rankDiff = presenceSortValue(a.presenceStatus) - presenceSortValue(b.presenceStatus);
-          if (rankDiff !== 0) {
-            return rankDiff;
-          }
-          return (a.displayName || '').localeCompare(b.displayName || '');
-        });
-        const memberChips = members.length
-          ? members
-              .map((member) => {
-                const statusCls = presenceClass(member.presenceStatus);
-                const statusText = formatPresence(member.presenceStatus);
-                const label = escapeHtml(member.displayName || 'Member');
-                const botBadge = member.bot ? '<span class="bot-badge">BOT</span>' : '';
-                const dmButton =
-                  member.id && member.id !== state.user?.id
-                    ? `<button type="button" class="ghost tiny dm-user" data-user="${member.id}" title="Message ${label}">Message</button>`
-                    : '';
-                return `
-                  <div class="room-member-chip">
-                    <span class="chip-name">${label}${botBadge}</span>
-                    <span class="presence-pill ${statusCls}">${statusText}</span>
-                    ${dmButton}
-                  </div>
-                `;
-              })
-              .join('')
-          : '<p class="muted small">No members yet.</p>';
-        const moderatorTools =
-          canModerateRooms() && room.isMember
-            ? `<div class="room-moderation">
-                <button type="button" class="ghost tiny" data-room-action="add-member" data-room="${room.id}">Add member</button>
-                <button type="button" class="ghost tiny" data-room-action="toggle-visibility" data-room="${
-                  room.id
-                }" data-public="${room.isPublic ? 'true' : 'false'}">${
-                room.isPublic ? 'Make private' : 'Make public'
-              }</button>
-                <button type="button" class="ghost tiny" data-room-action="view-requests" data-room="${room.id}">Requests${
-                room.pendingRequestCount ? ` (${room.pendingRequestCount})` : ''
-              }</button>
-              </div>`
-            : '';
-        const requestsSection = renderRoomRequestsSection(room);
-        const detailSections = [
-          `<div class="room-member-list">${memberChips}</div>`,
-          moderatorTools,
-          requestsSection
-        ].filter(Boolean);
-        if (detailSections.length) {
-          detailsMarkup = `<div class="room-row-details">${detailSections.join('')}</div>`;
-        }
-      }
-      const rowClasses = ['room-row'];
-      if (room.isMember) {
-        rowClasses.push('joinable');
-      }
-      if (isActive) {
-        rowClasses.push('active', 'expanded');
-      }
+      const moderatorTools =
+        canModerateRooms() && room.isMember
+          ? `<div class="room-moderation">
+              <button type="button" class="ghost tiny" data-room-action="add-member" data-room="${room.id}">Add member</button>
+              <button type="button" class="ghost tiny" data-room-action="toggle-visibility" data-room="${
+                room.id
+              }" data-public="${room.isPublic ? 'true' : 'false'}">${
+              room.isPublic ? 'Make private' : 'Make public'
+            }</button>
+              <button type="button" class="ghost tiny" data-room-action="view-requests" data-room="${room.id}">Requests${
+              room.pendingRequestCount ? ` (${room.pendingRequestCount})` : ''
+            }</button>
+            </div>`
+          : '';
+      const requestsSection = renderRoomRequestsSection(room);
       return `
-        <div class="${rowClasses.join(' ')}" data-room="${room.id}" aria-expanded="${
-        isActive ? 'true' : 'false'
-      }">
-          <div class="room-row-main">
-            <div class="room-row-info">
-              <span class="room-name" title="${escapeHtml(room.title || 'Room')}">${escapeHtml(
-        room.title || 'Room'
-      )}</span>
-              <span class="room-count">${countLabel}</span>
-              ${badgeGroup}
+        <div class="room-card ${room.isMember ? 'joinable' : ''} ${active}" data-room="${room.id}">
+          <div class="room-card-header">
+            <div class="room-meta">
+              <h4>${escapeHtml(room.title || 'Room')}</h4>
+              <span>${countLabel}</span>
             </div>
-            <div class="room-row-actions">
-              ${actions || ''}
+            <div class="room-actions">
+              ${visibilityBadge}
+              ${membershipBadge}
+              ${pendingCount}
+              ${actions}
             </div>
           </div>
-          ${detailsMarkup}
+          <div class="room-member-list">
+            ${memberChips}
+          </div>
+          ${moderatorTools}
+          ${requestsSection}
         </div>
       `;
     })
@@ -1364,8 +1256,6 @@ function setActiveConversation(conversationId, options = {}) {
   renderTypingIndicator();
   renderThinkingIndicator();
   loadMessages(conversationId);
-  // Close sidebar on mobile when conversation is selected
-  closeSidebar();
 }
 
 async function activateRoomSelection(roomId) {
@@ -1380,24 +1270,9 @@ async function activateRoomSelection(roomId) {
 async function loadMessages(conversationId) {
   if (!conversationId) return;
   try {
-    const [messagesRes, receiptsRes] = await Promise.all([
-      authFetch(`/api/conversations/${conversationId}/messages`),
-      authFetch(`/api/conversations/${conversationId}/read-receipts`).catch(() => ({ receipts: [] }))
-    ]);
-    const normalized = (messagesRes.messages || []).map((message) => withDeliveryStatus(message));
+    const res = await authFetch(`/api/conversations/${conversationId}/messages`);
+    const normalized = (res.messages || []).map((message) => withDeliveryStatus(message));
     state.messageCache.set(conversationId, normalized);
-
-    // Store bot read receipts
-    if (receiptsRes.receipts && receiptsRes.receipts.length > 0) {
-      if (!state.botReadReceipts.has(conversationId)) {
-        state.botReadReceipts.set(conversationId, new Map());
-      }
-      const receiptMap = state.botReadReceipts.get(conversationId);
-      receiptsRes.receipts.forEach((r) => {
-        receiptMap.set(r.userId, r.lastReadMessageId);
-      });
-    }
-
     if (state.activeConversationId === conversationId) {
       renderMessages();
     }
@@ -1408,11 +1283,7 @@ async function loadMessages(conversationId) {
 
 function renderMessages() {
   if (!state.user) return;
-  const conversationId = state.activeConversationId;
-  const messages = state.messageCache.get(conversationId) || [];
-  const conversation = state.conversations.find((c) => c.id === conversationId);
-  const hasBot = conversation?.members?.some((m) => m.bot) || false;
-
+  const messages = state.messageCache.get(state.activeConversationId) || [];
   el.messageList.innerHTML = messages
     .map((msg) => {
       const mine = msg.userId === state.user.id;
@@ -1420,26 +1291,11 @@ function renderMessages() {
       const time = new Date(msg.createdAt).toLocaleTimeString();
       const displayName = escapeHtml(msg.displayName || 'Unknown');
       const badge = renderRoleBadge(msg.role);
-      const botBadge = msg.bot ? '<span class="bot-badge">BOT</span>' : '';
       const contentHtml = renderMessageContent(msg);
       const snapshot = state.presence.get(msg.userId);
       const avatarUrl = resolveAvatar(msg.avatarUrl || snapshot?.avatarUrl, msg.profilePhotoUrl || snapshot?.profilePhotoUrl);
       const statusCls = presenceClass(snapshot?.presenceStatus);
-
-      // Build delivery status for messages to bots
-      let deliveryIcon = '';
-      if (mine && hasBot && !msg.pending) {
-        const readStatus = getMessageReadStatus(conversationId, msg.id, msg.userId);
-        if (readStatus === 'seen') {
-          deliveryIcon = '<span class="delivery-icon seen" title="Seen by bot">✓✓</span>';
-        } else {
-          deliveryIcon = '<span class="delivery-icon sent" title="Sent">✓</span>';
-        }
-      } else if (mine && msg.pending) {
-        deliveryIcon = '<span class="delivery-icon sending" title="Sending...">○</span>';
-      }
-
-      const statusText = mine && !hasBot ? describeMessageStatus(msg) : '';
+      const statusText = mine ? describeMessageStatus(msg) : '';
       const statusMarkup = statusText
         ? `<div class="message-status ${msg.status || ''}">${escapeHtml(statusText)}</div>`
         : '';
@@ -1450,9 +1306,9 @@ function renderMessages() {
             <span class="presence-dot ${statusCls}"></span>
           </div>
           <div class="message-body">
-            <strong class="message-author">${displayName}${botBadge}${badge ? ` ${badge}` : ''}</strong>
+            <strong class="message-author">${displayName}${badge ? ` ${badge}` : ''}</strong>
             <div class="message-content" data-format="${msg.format || 'text'}">${contentHtml}</div>
-            <small>${time}${deliveryIcon}</small>
+            <small>${time}</small>
             ${statusMarkup}
           </div>
         </div>
@@ -1484,7 +1340,6 @@ function updateChatHeader() {
   const chips = peers
     .map((member) => {
       const badge = renderRoleBadge(member.role);
-      const botBadge = member.bot ? '<span class="bot-badge">BOT</span>' : '';
       const presence = `<span class="presence-pill ${presenceClass(
         member.presenceStatus
       )}">${formatPresence(member.presenceStatus)}</span>`;
@@ -1497,7 +1352,7 @@ function updateChatHeader() {
         ? `<button class="chip-action" data-action="ban" data-user="${member.id}">Ban</button>`
         : '';
       return `<span class="member-chip" data-user="${member.id}">
-        ${escapeHtml(member.displayName || 'Member')}${botBadge} ${badge || ''} ${presence}
+        ${escapeHtml(member.displayName || 'Member')} ${badge || ''} ${presence}
         ${banButton}
       </span>`;
     })
@@ -1516,11 +1371,10 @@ async function handleMessageSend(event) {
   if (!content) return;
   const conversationId = state.activeConversationId;
   const tempId = `local-${Date.now()}`;
-  const format = state.markdownMode ? 'markdown' : 'text';
   const optimisticMessage = {
     id: tempId,
     content,
-    format,
+    format: 'text',
     createdAt: new Date().toISOString(),
     userId: state.user.id,
     displayName: state.user.displayName || state.user.username,
@@ -1536,7 +1390,7 @@ async function handleMessageSend(event) {
   try {
     const res = await authFetch(`/api/conversations/${conversationId}/messages`, {
       method: 'POST',
-      body: JSON.stringify({ content, format })
+      body: JSON.stringify({ content, format: 'text' })
     });
     finalizeOptimisticMessage(conversationId, tempId, res.message);
   } catch (error) {
@@ -1644,69 +1498,6 @@ function connectSocket() {
   });
 }
 
-function renderApprovalsPanel() {
-  if (!el.approvalsPanel) return;
-  const visible = Boolean(state.user && state.token);
-  el.approvalsPanel.classList.toggle('hidden', !visible);
-  if (!visible) {
-    return;
-  }
-  const incomingPending = state.approvalsIncoming.filter((req) => req.status === 'pending').length;
-  const outgoingPending = state.approvalsOutgoing.filter((req) => req.status === 'pending').length;
-  if (el.incomingApprovalCount) {
-    const totalIncoming = state.approvalsIncoming.length;
-    el.incomingApprovalCount.textContent = `Incoming: ${incomingPending} pending`;
-    el.incomingApprovalCount.title = `${incomingPending} pending of ${totalIncoming} total`;
-  }
-  if (el.outgoingApprovalCount) {
-    const totalOutgoing = state.approvalsOutgoing.length;
-    el.outgoingApprovalCount.textContent = `Outgoing: ${outgoingPending} pending`;
-    el.outgoingApprovalCount.title = `${outgoingPending} pending of ${totalOutgoing} total`;
-  }
-}
-
-async function loadApprovalsPanel(showErrors = true) {
-  if (!state.token) {
-    state.approvalsIncoming = [];
-    state.approvalsOutgoing = [];
-    renderApprovalsPanel();
-    return;
-  }
-  try {
-    const [incomingRes, outgoingRes] = await Promise.all([
-      authFetch('/api/approvals?direction=incoming'),
-      authFetch('/api/approvals?direction=outgoing')
-    ]);
-    state.approvalsIncoming = incomingRes.requests || [];
-    state.approvalsOutgoing = outgoingRes.requests || [];
-    renderApprovalsPanel();
-  } catch (error) {
-    if (showErrors) {
-      showToast(error.message || 'Unable to load approvals', 'error');
-    }
-  }
-}
-
-function triggerApprovalsAlert() {
-  if (!el.approvalsPanel) return;
-  el.approvalsPanel.classList.add('has-alert');
-  if (el.approvalsAlertBadge) {
-    el.approvalsAlertBadge.classList.remove('hidden');
-  }
-  clearTimeout(approvalsAlertTimer);
-  approvalsAlertTimer = setTimeout(clearApprovalsAlert, 5000);
-}
-
-function clearApprovalsAlert() {
-  if (!el.approvalsPanel) return;
-  el.approvalsPanel.classList.remove('has-alert');
-  if (el.approvalsAlertBadge) {
-    el.approvalsAlertBadge.classList.add('hidden');
-  }
-  clearTimeout(approvalsAlertTimer);
-  approvalsAlertTimer = null;
-}
-
 function updateConnectionBadge(online) {
   el.connectionState.textContent = online ? 'Online' : 'Offline';
   el.connectionState.classList.toggle('online', online);
@@ -1716,13 +1507,6 @@ function updateConnectionBadge(online) {
 function handleSocketPayload(payload) {
   switch (payload.type) {
     case 'ready':
-      // Check if server restarted - reload page to get fresh assets
-      if (state.serverInstanceId && payload.serverInstanceId && state.serverInstanceId !== payload.serverInstanceId) {
-        console.log('[ws] Server restarted, reloading page...');
-        window.location.reload();
-        return;
-      }
-      state.serverInstanceId = payload.serverInstanceId;
       state.user = payload.user;
       updateUserCard();
       clearTypingState();
@@ -1760,9 +1544,6 @@ function handleSocketPayload(payload) {
       break;
     case 'thinking':
       handleThinkingUpdate(payload);
-      break;
-    case 'read:receipt':
-      handleReadReceipt(payload);
       break;
     case 'error':
       showToast(payload.error || 'Socket error', 'error');
@@ -1886,40 +1667,23 @@ async function startDirectMessage(userId) {
 async function requestApproval(userId) {
   if (!userId) return;
   try {
-    const conversationId = state.activeConversationId || null;
     await authFetch('/api/approvals', {
       method: 'POST',
-      body: JSON.stringify({ targetUserId: userId, conversationId })
+      body: JSON.stringify({ targetUserId: userId })
     });
     showToast('Approval request sent', 'success');
-    await loadApprovalsPanel(false);
   } catch (error) {
     showToast(error.message || 'Unable to send request', 'error');
   }
 }
 
-function focusApprovalRequestShortcut() {
-  if (!el.userSearch) return;
-  el.userSearch.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  el.userSearch.focus();
-  showToast('Search for a manager and click “Request approval”.', 'info');
-}
-
 function handleApprovalNotification(request) {
   if (!request || !state.user) return;
-  loadApprovalsPanel(false);
   const status = request.status || 'updated';
   const variant = status === 'approved' ? 'success' : status === 'denied' ? 'error' : 'info';
   if (request.targetId === state.user.id) {
     const name = request.requesterName || request.requesterId || 'Requester';
-    const message =
-      status === 'pending'
-        ? `${name} sent an approval request`
-        : `Approval request from ${name} was ${status}`;
-    showToast(message, variant);
-    if (status === 'pending') {
-      triggerApprovalsAlert();
-    }
+    showToast(`Approval request from ${name} ${status}`, variant);
     return;
   }
   if (request.requesterId === state.user.id) {
@@ -1994,7 +1758,6 @@ let dmDialog = null;
 let dmSearchTimer = null;
 let addMemberDialog = null;
 let addMemberSearchTimer = null;
-let approvalReviewDialog = null;
 
 function openDirectMessageDialog() {
   if (!state.user) {
@@ -2228,101 +1991,6 @@ async function addUserToRoom(roomId, userId) {
   await Promise.all([loadRooms(), loadConversations()]);
 }
 
-function openApprovalReviewModal() {
-  if (!state.user) {
-    showToast('Sign in to review approvals', 'error');
-    return;
-  }
-  closeApprovalReviewModal();
-  const overlay = document.createElement('div');
-  overlay.className = 'modal-overlay approval-review-overlay';
-  overlay.innerHTML = `
-    <div class="modal-card approval-review-modal">
-      <div class="modal-header">
-        <h3>Review Approval Requests</h3>
-        <button class="ghost close-modal" type="button" aria-label="Close">\u2715</button>
-      </div>
-      <div class="modal-body">
-        <div class="approval-review-list"></div>
-      </div>
-    </div>
-  `;
-  document.body.appendChild(overlay);
-  const listContainer = overlay.querySelector('.approval-review-list');
-  approvalReviewDialog = { overlay, listContainer };
-  overlay.addEventListener('click', (event) => {
-    if (event.target === overlay || event.target.closest('.close-modal')) {
-      closeApprovalReviewModal();
-    }
-  });
-  listContainer.addEventListener('click', handleApprovalReviewAction);
-  renderApprovalReviewList();
-}
-
-function closeApprovalReviewModal() {
-  if (approvalReviewDialog?.overlay) {
-    approvalReviewDialog.overlay.remove();
-  }
-  approvalReviewDialog = null;
-}
-
-function renderApprovalReviewList() {
-  if (!approvalReviewDialog) return;
-  const { listContainer } = approvalReviewDialog;
-  const pending = state.approvalsIncoming.filter((req) => req.status === 'pending');
-  if (!pending.length) {
-    listContainer.innerHTML = '<p class="muted">No pending approval requests to review.</p>';
-    return;
-  }
-  listContainer.innerHTML = pending
-    .map((request) => {
-      const name = request.requesterName || 'Unknown';
-      const role = request.requesterRole;
-      const badge = renderRoleBadge(role);
-      const note = request.note
-        ? `<p class="approval-note muted small">"${escapeHtml(request.note)}"</p>`
-        : '';
-      return `
-        <div class="approval-review-item" data-id="${request.id}">
-          <div class="approval-review-header">
-            <strong>${escapeHtml(name)}${badge ? ` ${badge}` : ''}</strong>
-          </div>
-          ${note}
-          <div class="approval-actions">
-            <button class="ghost small approval-review-action" data-id="${request.id}" data-decision="approved">Approve</button>
-            <button class="ghost small danger approval-review-action" data-id="${request.id}" data-decision="denied">Deny</button>
-          </div>
-        </div>
-      `;
-    })
-    .join('');
-}
-
-async function handleApprovalReviewAction(event) {
-  const button = event.target.closest('.approval-review-action');
-  if (!button) return;
-  const { id, decision } = button.dataset;
-  if (!id || !decision) return;
-  button.disabled = true;
-  try {
-    await authFetch(`/api/approvals/${id}/respond`, {
-      method: 'POST',
-      body: JSON.stringify({ decision })
-    });
-    showToast(`Request ${decision}`, 'success');
-    await loadApprovalsPanel(false);
-    const remaining = state.approvalsIncoming.filter((req) => req.status === 'pending');
-    if (remaining.length === 0) {
-      closeApprovalReviewModal();
-    } else {
-      renderApprovalReviewList();
-    }
-  } catch (error) {
-    showToast(error.message || 'Unable to respond', 'error');
-    button.disabled = false;
-  }
-}
-
 async function loadRoomRequests(roomId) {
   if (!roomId) return;
   try {
@@ -2466,7 +2134,7 @@ function handleRoomListClick(event) {
     event.stopPropagation();
     return;
   }
-  const card = event.target.closest('.room-row');
+  const card = event.target.closest('.room-card');
   if (!card) return;
   const room = state.rooms.find((item) => item.id === card.dataset.room);
   if (!room || room.banned) return;
@@ -2524,40 +2192,9 @@ async function handlePasswordChange(event) {
   }
 }
 
-// Mobile sidebar toggle functions
-function openSidebar() {
-  if (el.sidebar) {
-    el.sidebar.classList.add('open');
-  }
-  if (el.sidebarBackdrop) {
-    el.sidebarBackdrop.classList.add('visible');
-  }
-  document.body.style.overflow = 'hidden';
-}
-
-function closeSidebar() {
-  if (el.sidebar) {
-    el.sidebar.classList.remove('open');
-  }
-  if (el.sidebarBackdrop) {
-    el.sidebarBackdrop.classList.remove('visible');
-  }
-  document.body.style.overflow = '';
-}
-
 function wireEvents() {
-  // Mobile navigation
-  if (el.menuToggle) {
-    el.menuToggle.addEventListener('click', openSidebar);
-  }
-  if (el.closeSidebar) {
-    el.closeSidebar.addEventListener('click', closeSidebar);
-  }
-  if (el.sidebarBackdrop) {
-    el.sidebarBackdrop.addEventListener('click', closeSidebar);
-  }
-
   el.loginForm.addEventListener('submit', handleLogin);
+  el.registerForm.addEventListener('submit', handleRegister);
   el.logoutBtn.addEventListener('click', logout);
   el.messageForm.addEventListener('submit', handleMessageSend);
   if (el.messageInput) {
@@ -2569,14 +2206,6 @@ function wireEvents() {
     });
     el.messageInput.addEventListener('input', notifyTypingActivity);
     el.messageInput.addEventListener('blur', () => resetSelfTyping());
-  }
-  if (el.markdownToggle) {
-    el.markdownToggle.addEventListener('click', () => {
-      state.markdownMode = !state.markdownMode;
-      el.markdownToggle.classList.toggle('active', state.markdownMode);
-      el.markdownToggle.title = state.markdownMode ? 'Markdown enabled' : 'Toggle Markdown';
-      el.messageInput.placeholder = state.markdownMode ? 'Type markdown...' : 'Type a message...';
-    });
   }
   el.userSearch.addEventListener('input', handleUserSearch);
   el.userResults.addEventListener('click', (event) => {
@@ -2595,28 +2224,6 @@ function wireEvents() {
     }
   });
   el.conversationList.addEventListener('click', (event) => {
-    // Handle hide button
-    const hideBtn = event.target.closest('.hide-dm');
-    if (hideBtn) {
-      event.stopPropagation();
-      hideConversation(hideBtn.dataset.id);
-      return;
-    }
-    // Handle unhide button
-    const unhideBtn = event.target.closest('.unhide-dm');
-    if (unhideBtn) {
-      event.stopPropagation();
-      unhideConversation(unhideBtn.dataset.id);
-      return;
-    }
-    // Handle toggle hidden button
-    const toggleBtn = event.target.closest('#toggleHiddenDMs');
-    if (toggleBtn) {
-      event.stopPropagation();
-      toggleShowHiddenConversations();
-      return;
-    }
-    // Handle conversation selection
     const div = event.target.closest('.conversation');
     if (div) {
       setActiveConversation(div.dataset.id);
@@ -2629,20 +2236,8 @@ function wireEvents() {
   if (el.refreshRooms) {
     el.refreshRooms.addEventListener('click', loadRooms);
   }
-  if (el.refreshApprovals) {
-    el.refreshApprovals.addEventListener('click', () => loadApprovalsPanel(true));
-  }
-  if (el.reviewApprovalsBtn) {
-    el.reviewApprovalsBtn.addEventListener('click', openApprovalReviewModal);
-  }
-  if (el.newApprovalBtn) {
-    el.newApprovalBtn.addEventListener('click', focusApprovalRequestShortcut);
-  }
   if (el.roomsList) {
     el.roomsList.addEventListener('click', handleRoomListClick);
-  }
-  if (el.approvalsPanel) {
-    el.approvalsPanel.addEventListener('mouseenter', clearApprovalsAlert);
   }
   if (el.createRoomBtn) {
     el.createRoomBtn.addEventListener('click', handleCreateRoom);

@@ -1,27 +1,7 @@
-const fs = require('fs');
 const path = require('path');
 const dotenv = require('dotenv');
 
-const loadedEnvFiles = [];
-
-function loadEnvFile(filePath, { override } = { override: false }) {
-  if (!filePath) {
-    return;
-  }
-  const resolved = path.resolve(filePath);
-  if (!fs.existsSync(resolved)) {
-    return;
-  }
-  dotenv.config({ path: resolved, override });
-  loadedEnvFiles.push(resolved);
-}
-
-const rootEnv = path.join(__dirname, '..', '.env');
-loadEnvFile(rootEnv, { override: false });
-loadEnvFile(path.join(__dirname, '.env'), { override: true });
-if (process.env.CHAT_SERVER_ENV_FILE) {
-  loadEnvFile(process.env.CHAT_SERVER_ENV_FILE, { override: true });
-}
+dotenv.config({ path: path.join(__dirname, '.env'), override: false });
 
 function parseOrigins(value) {
   return value
@@ -37,34 +17,12 @@ const defaultOrigins =
 const defaultDebugLog =
   process.env.DEBUG_LOG_PATH || path.join(__dirname, '..', 'debug.log');
 
-const isProduction = process.env.NODE_ENV === 'production';
-
-// Require JWT_SECRET in production
-if (isProduction && !process.env.JWT_SECRET) {
-  console.error('FATAL: JWT_SECRET environment variable is required in production');
-  process.exit(1);
-}
-
 const config = {
   port: parseInt(process.env.PORT || '4433', 10),
   jwtSecret: process.env.JWT_SECRET || 'local-dev-secret',
-  jwtExpiresIn: process.env.JWT_EXPIRES_IN || '2h',
+  jwtExpiresIn: process.env.JWT_EXPIRES_IN || '12h',
   adminUser: process.env.ADMIN_USER || 'admin',
   adminPassword: process.env.ADMIN_PASSWORD || 'ChangeMe!23',
-  auth: {
-    // Password complexity requirements
-    passwordMinLength: 8,
-    passwordMaxLength: 128,
-    passwordRequireUppercase: true,
-    passwordRequireLowercase: true,
-    passwordRequireNumber: true,
-    passwordRequireSpecial: true,
-    // Account lockout settings
-    maxFailedAttempts: 5,
-    lockoutDurationMinutes: 15,
-    // Token blacklist cleanup interval (ms)
-    tokenCleanupInterval: 60 * 60 * 1000
-  },
   db: {
     host: process.env.DB_HOST || 'localhost',
     port: parseInt(process.env.DB_PORT || '3306', 10),
@@ -86,13 +44,12 @@ const config = {
   debug: {
     enabled: process.env.DEBUG_MODE === 'true',
     logPath: defaultDebugLog
-  },
-  loadedEnvFiles
+  }
 };
 
-if (!process.env.JWT_SECRET && !isProduction) {
+if (!process.env.JWT_SECRET) {
   // eslint-disable-next-line no-console
-  console.warn('WARNING: JWT_SECRET not set - using insecure default (dev mode only)');
+  console.warn('JWT_SECRET not set - falling back to insecure local default');
 }
 
 if (!process.env.DB_HOST) {

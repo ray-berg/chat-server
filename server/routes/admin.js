@@ -1,10 +1,9 @@
 const express = require('express');
 const { z } = require('zod');
-const { authenticateRequest, requireRole, hashPassword, validatePassword } = require('../auth');
+const { authenticateRequest, requireRole, hashPassword } = require('../auth');
 const {
   listUsers,
   updateUserAccess,
-  updateUserProfile,
   getStats,
   createUser,
   getUserByUsername,
@@ -26,43 +25,16 @@ router.get('/users', requireRole('admin', 'moderator'), async (req, res) => {
   return res.json({ users });
 });
 
-router.get('/users/:id', requireRole('admin', 'moderator'), async (req, res) => {
-  const user = await getUserById(req.params.id);
-  if (!user) {
-    return res.status(404).json({ error: 'User not found' });
-  }
-  if (req.user.role === 'moderator' && user.role === 'admin') {
-    return res.status(403).json({ error: 'Cannot view administrator profiles' });
-  }
-  return res.json({ user });
-});
-
-const birthdaySchema = z
-  .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/)
-  .optional()
-  .nullable();
-
 const updateSchema = z.object({
-  // Access control fields
   role: roleEnum.optional(),
   status: z.enum(['active', 'disabled']).optional(),
-  manager: z.boolean().optional(),
-  bot: z.boolean().optional(),
-  // Profile fields
-  displayName: z.string().min(1).max(64).optional(),
-  bio: z.string().max(500).optional().nullable(),
-  birthday: birthdaySchema,
-  avatarUrl: z.string().max(255).optional().nullable(),
-  profilePhotoUrl: z.string().max(255).optional().nullable(),
-  profileTheme: z.enum(['light', 'dark']).optional(),
-  accentColor: z.string().max(32).optional()
+  manager: z.boolean().optional()
 });
 
 router.patch('/users/:id', requireRole('admin', 'moderator'), async (req, res) => {
   const parse = updateSchema.safeParse(req.body);
   if (!parse.success) {
-    return res.status(400).json({ error: 'Invalid payload', details: parse.error.errors });
+    return res.status(400).json({ error: 'Invalid payload' });
   }
   const target = await getUserById(req.params.id);
   if (!target) {
@@ -71,38 +43,19 @@ router.patch('/users/:id', requireRole('admin', 'moderator'), async (req, res) =
   if (req.user.role === 'moderator' && target.role === 'admin') {
     return res.status(403).json({ error: 'Cannot modify administrator accounts' });
   }
-
-  // Separate access fields from profile fields
-  const { role, status, manager, bot, ...profileFields } = parse.data;
-  const accessPayload = {};
-  if (role !== undefined && req.user.role === 'admin') accessPayload.role = role;
-  if (status !== undefined) accessPayload.status = status;
-  if (manager !== undefined) accessPayload.manager = manager;
-  if (bot !== undefined) accessPayload.bot = bot;
-
-  const hasAccessChanges = Object.keys(accessPayload).length > 0;
-  const hasProfileChanges = Object.keys(profileFields).length > 0;
-
-  if (!hasAccessChanges && !hasProfileChanges) {
+  const payload = { ...parse.data };
+  if (req.user.role !== 'admin') {
+    delete payload.role;
+  }
+  if (!payload.role && !payload.status && typeof payload.manager === 'undefined') {
     return res.status(400).json({ error: 'No changes provided' });
   }
-
-  // Apply access changes
-  if (hasAccessChanges) {
-    await updateUserAccess(req.params.id, accessPayload);
-  }
-
-  // Apply profile changes
-  if (hasProfileChanges) {
-    await updateUserProfile(req.params.id, profileFields);
-  }
-
-  const updated = await getUserById(req.params.id);
+  const updated = await updateUserAccess(req.params.id, payload);
   await recordAuditLog({
     actorId: req.user.id,
     action: 'admin.update_user',
     targetId: updated.id,
-    metadata: { changes: parse.data }
+    metadata: { changes: payload }
   });
   return res.json({ user: updated });
 });
@@ -116,8 +69,7 @@ const createSchema = z.object({
   password: z.string().min(8).max(128),
   displayName: z.string().min(1).max(64),
   role: roleEnum.default('user'),
-  manager: z.boolean().optional(),
-  bot: z.boolean().optional()
+  manager: z.boolean().optional()
 });
 
 router.post('/users', requireRole('admin'), async (req, res) => {
@@ -125,28 +77,18 @@ router.post('/users', requireRole('admin'), async (req, res) => {
   if (!parse.success) {
     return res.status(400).json({ error: 'Invalid payload', details: parse.error.errors });
   }
-  const { username, password, displayName, role, manager, bot } = parse.data;
-
-  // Validate password complexity
-  const passwordValidation = validatePassword(password);
-  if (!passwordValidation.valid) {
-    return res.status(400).json({
-      error: 'Password does not meet requirements',
-      details: passwordValidation.errors
-    });
-  }
-
+  const { username, password, displayName, role, manager } = parse.data;
   const existing = await getUserByUsername(username);
   if (existing) {
     return res.status(409).json({ error: 'Username already exists' });
   }
   const passwordHash = await hashPassword(password);
-  const user = await createUser({ username, passwordHash, displayName, role, manager, bot });
+  const user = await createUser({ username, passwordHash, displayName, role, manager });
   await recordAuditLog({
     actorId: req.user.id,
     action: 'admin.create_user',
     targetId: user.id,
-    metadata: { username, role, manager: Boolean(manager), bot: Boolean(bot) }
+    metadata: { username, role, manager: Boolean(manager) }
   });
   return res.status(201).json({ user });
 });
@@ -160,16 +102,6 @@ router.post('/users/:id/reset-password', requireRole('admin', 'moderator'), asyn
   if (!parse.success) {
     return res.status(400).json({ error: 'Invalid payload' });
   }
-
-  // Validate password complexity
-  const passwordValidation = validatePassword(parse.data.password);
-  if (!passwordValidation.valid) {
-    return res.status(400).json({
-      error: 'Password does not meet requirements',
-      details: passwordValidation.errors
-    });
-  }
-
   const target = await getUserById(req.params.id);
   if (!target) {
     return res.status(404).json({ error: 'User not found' });

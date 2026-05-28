@@ -11,9 +11,6 @@ const {
   updateUserPresence
 } = require('./db');
 
-// Server instance ID - changes on each restart
-const SERVER_INSTANCE_ID = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-
 const clients = new Map(); // userId -> Set<ws>
 
 function registerClient(userId, socket) {
@@ -87,7 +84,7 @@ function setupWebsocket(server) {
     registerClient(user.id, socket);
     await updateUserPresence(user.id, 'online');
     const conversations = await listConversationsForUser(user.id);
-    socket.send(JSON.stringify({ type: 'ready', user, conversations, serverInstanceId: SERVER_INSTANCE_ID }));
+    socket.send(JSON.stringify({ type: 'ready', user, conversations }));
 
     socket.on('message', async (raw) => {
       try {
@@ -151,46 +148,6 @@ function setupWebsocket(server) {
       type: 'presence:updated',
       user
     });
-  });
-
-  // Allow API-triggered thinking broadcasts (for bots)
-  events.on('thinking:broadcast', async ({ conversationId, userId, displayName, thinking }) => {
-    try {
-      const members = await getConversationMembers(conversationId);
-      members.forEach((member) => {
-        if (member.id === userId) return;
-        sendToUser(member.id, {
-          type: 'thinking',
-          conversationId,
-          thinking: Boolean(thinking),
-          userId,
-          displayName
-        });
-      });
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error('WS thinking broadcast error', err);
-    }
-  });
-
-  // Allow API-triggered read receipt broadcasts (for bots)
-  events.on('read:receipt', async ({ conversationId, userId, displayName, messageId }) => {
-    try {
-      const members = await getConversationMembers(conversationId);
-      members.forEach((member) => {
-        if (member.id === userId) return;
-        sendToUser(member.id, {
-          type: 'read:receipt',
-          conversationId,
-          userId,
-          displayName,
-          messageId
-        });
-      });
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error('WS read receipt broadcast error', err);
-    }
   });
 
   return wss;

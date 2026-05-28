@@ -8,7 +8,3 @@ chat-server.tar.gz
 logs/
 *.log
 server/chat-server.pid
-server/local-debug.pid
-*.pid
-.env.prod
-.env.*

@@ -19,7 +19,8 @@ const el = {
   adminWarning: document.getElementById('adminAuthWarning'),
   adminStats: document.getElementById('adminStats'),
   adminUsers: document.getElementById('adminUsers'),
-  addUserBtn: document.getElementById('addUserBtn'),
+  createUserForm: document.getElementById('createUserForm'),
+  moderatorHelp: document.getElementById('moderatorHelp'),
   refreshAdmin: document.getElementById('refreshAdmin'),
   adminAuditLogs: document.getElementById('adminAuditLogs'),
   auditPanel: document.getElementById('auditPanel'),
@@ -86,8 +87,11 @@ async function ensureAccess() {
     }
     el.adminWarning.classList.add('hidden');
     el.adminApp.classList.remove('hidden');
-    if (el.addUserBtn) {
-      el.addUserBtn.classList.toggle('hidden', !isAdmin());
+    if (el.createUserForm) {
+      el.createUserForm.classList.toggle('hidden', !isAdmin());
+    }
+    if (el.moderatorHelp) {
+      el.moderatorHelp.classList.toggle('hidden', isAdmin());
     }
     configureMenuAccess();
     return true;
@@ -136,7 +140,7 @@ function renderAdminUsers() {
     .map(
       (user) => `
       <tr data-id="${user.id}">
-        <td>${escapeHtml(user.displayName)}${user.bot ? ' <span class="bot-badge">BOT</span>' : ''}</td>
+        <td>${escapeHtml(user.displayName)}</td>
         <td>@${escapeHtml(user.username)}</td>
         <td>
           ${
@@ -165,18 +169,7 @@ function renderAdminUsers() {
             <span>Manager</span>
           </label>
         </td>
-        <td>
-          <label class="bot-flag">
-            <input type="checkbox" class="bot-toggle" ${user.bot ? 'checked' : ''} ${
-        adminView || user.role !== 'admin' ? '' : 'disabled'
-      } />
-            <span>Bot</span>
-          </label>
-        </td>
         <td class="actions">
-          <button class="ghost edit-profile" ${
-            !adminView && user.role === 'admin' ? 'disabled' : ''
-          }>Edit Profile</button>
           <button class="ghost save-user" ${
             !adminView && user.role === 'admin' ? 'disabled' : ''
           }>Save</button>
@@ -201,7 +194,6 @@ function renderAdminUsers() {
           <th>Role</th>
           <th>Status</th>
           <th>Manager</th>
-          <th>Bot</th>
           <th>Actions</th>
         </tr>
       </thead>
@@ -331,81 +323,6 @@ function escapeHtml(text = '') {
   return div.innerHTML;
 }
 
-// Create User Modal
-let createUserOverlay = null;
-
-function closeCreateUserModal() {
-  if (createUserOverlay) {
-    createUserOverlay.remove();
-    createUserOverlay = null;
-  }
-}
-
-function openCreateUserModal() {
-  if (!isAdmin()) return;
-  closeCreateUserModal();
-
-  const overlay = document.createElement('div');
-  overlay.className = 'modal-overlay create-user-overlay';
-  overlay.innerHTML = `
-    <div class="modal-card create-user-modal">
-      <div class="modal-header">
-        <h3>Create New User</h3>
-        <button class="ghost close-modal" type="button" aria-label="Close">\u2715</button>
-      </div>
-      <div class="modal-body">
-        <form id="createUserModalForm" class="create-user-form">
-          <label>
-            Display name
-            <input name="displayName" type="text" required placeholder="Full name" />
-          </label>
-          <label>
-            Username
-            <input name="username" type="text" required placeholder="login_name" />
-          </label>
-          <label>
-            Temporary password
-            <input name="password" type="text" minlength="8" required placeholder="Min 8 characters" />
-          </label>
-          <label>
-            Role
-            <select name="role">
-              <option value="user">Member</option>
-              <option value="moderator">Channel moderator</option>
-              <option value="admin">Administrator</option>
-            </select>
-          </label>
-          <div class="checkbox-row">
-            <label class="manager-flag">
-              <input name="manager" type="checkbox" />
-              <span>Manager</span>
-            </label>
-            <label class="bot-flag">
-              <input name="bot" type="checkbox" />
-              <span>Bot</span>
-            </label>
-          </div>
-          <div class="modal-actions">
-            <button type="button" class="ghost cancel-create">Cancel</button>
-            <button type="submit" class="primary">Create User</button>
-          </div>
-        </form>
-      </div>
-    </div>
-  `;
-
-  document.body.appendChild(overlay);
-  createUserOverlay = overlay;
-
-  overlay.addEventListener('click', (event) => {
-    if (event.target === overlay) closeCreateUserModal();
-  });
-  overlay.querySelector('.close-modal').addEventListener('click', closeCreateUserModal);
-  overlay.querySelector('.cancel-create').addEventListener('click', closeCreateUserModal);
-  overlay.querySelector('#createUserModalForm').addEventListener('submit', handleCreateUser);
-  overlay.querySelector('input[name="displayName"]').focus();
-}
-
 async function handleCreateUser(event) {
   event.preventDefault();
   if (!isAdmin()) return;
@@ -415,8 +332,7 @@ async function handleCreateUser(event) {
     username: form.get('username'),
     password: form.get('password'),
     role: form.get('role'),
-    manager: form.get('manager') === 'on',
-    bot: form.get('bot') === 'on'
+    manager: form.get('manager') === 'on'
   };
   if (!payload.password || payload.password.length < 8) {
     showToast('Password must be at least 8 characters', 'error');
@@ -427,7 +343,7 @@ async function handleCreateUser(event) {
       method: 'POST',
       body: JSON.stringify(payload)
     });
-    closeCreateUserModal();
+    event.target.reset();
     showToast('User created', 'success');
     loadAdminData();
   } catch (error) {
@@ -441,10 +357,6 @@ async function handleAdminAction(event) {
   const row = button.closest('tr');
   const userId = row?.dataset.id;
   if (!userId) return;
-  if (button.classList.contains('edit-profile')) {
-    openEditProfileModal(userId);
-    return;
-  }
   if (button.classList.contains('save-user')) {
     await saveUser(row, userId);
     return;
@@ -471,10 +383,6 @@ async function saveUser(row, userId) {
   const managerToggle = row.querySelector('.manager-toggle');
   if (managerToggle) {
     payload.manager = managerToggle.checked;
-  }
-  const botToggle = row.querySelector('.bot-toggle');
-  if (botToggle) {
-    payload.bot = botToggle.checked;
   }
   try {
     await authFetch(`/api/admin/users/${userId}`, {
@@ -515,270 +423,6 @@ async function handleDeleteUser(userId) {
     loadAdminData();
   } catch (error) {
     showToast(error.message || 'Unable to delete user', 'error');
-  }
-}
-
-// Edit Profile Modal
-let editProfileOverlay = null;
-
-const AVAILABLE_AVATARS = [
-  '/assets/avatars/avatar-blue.svg',
-  '/assets/avatars/avatar-green.svg',
-  '/assets/avatars/avatar-purple.svg',
-  '/assets/avatars/avatar-orange.svg',
-  '/assets/avatars/avatar-teal.svg',
-  '/assets/avatars/avatar-gray.svg'
-];
-
-function closeEditProfileModal() {
-  if (editProfileOverlay) {
-    editProfileOverlay.remove();
-    editProfileOverlay = null;
-  }
-}
-
-async function openEditProfileModal(userId) {
-  closeEditProfileModal();
-
-  let user;
-  try {
-    const res = await authFetch(`/api/admin/users/${userId}`);
-    user = res.user;
-  } catch (error) {
-    showToast(error.message || 'Unable to load user profile', 'error');
-    return;
-  }
-
-  const overlay = document.createElement('div');
-  overlay.className = 'modal-overlay edit-profile-overlay';
-  overlay.innerHTML = `
-    <div class="modal-card edit-profile-modal">
-      <div class="modal-header">
-        <h3>Edit Profile: ${escapeHtml(user.displayName)}</h3>
-        <button class="ghost close-modal" type="button" aria-label="Close">\u2715</button>
-      </div>
-      <div class="modal-body">
-        <form id="adminEditProfileForm" class="admin-edit-profile-form">
-          <input type="hidden" name="userId" value="${user.id}" />
-
-          <label>
-            Display name
-            <input name="displayName" type="text" required maxlength="64"
-                   value="${escapeHtml(user.displayName || '')}" />
-          </label>
-
-          <label>
-            Bio
-            <textarea name="bio" rows="3" maxlength="500"
-                      placeholder="User bio">${escapeHtml(user.bio || '')}</textarea>
-          </label>
-
-          <label>
-            Birthday
-            <input name="birthday" type="date" value="${user.birthday || ''}" />
-          </label>
-
-          <div class="profile-preferences">
-            <label>
-              Theme
-              <select name="profileTheme">
-                <option value="light" ${user.profileTheme === 'light' ? 'selected' : ''}>Light</option>
-                <option value="dark" ${user.profileTheme === 'dark' ? 'selected' : ''}>Dark</option>
-              </select>
-            </label>
-            <label>
-              Accent color
-              <input name="accentColor" type="color" value="${user.accentColor || '#2563eb'}" />
-            </label>
-          </div>
-
-          <div class="media-upload-section">
-            <div class="media-upload-row">
-              <div class="media-upload">
-                <h4>Avatar</h4>
-                <img class="media-preview admin-avatar-preview"
-                     src="${user.avatarUrl || '/assets/avatars/avatar-blue.svg'}"
-                     alt="Avatar preview" />
-                <label class="file-input">
-                  <span>Upload (max 2 MB)</span>
-                  <input type="file" class="admin-avatar-upload" accept="image/png,image/jpeg" />
-                </label>
-                <input type="hidden" name="avatarUrl" value="${user.avatarUrl || ''}" />
-              </div>
-              <div class="media-upload">
-                <h4>Profile Photo</h4>
-                <img class="media-preview admin-photo-preview"
-                     src="${user.profilePhotoUrl || '/assets/avatars/avatar-gray.svg'}"
-                     alt="Profile photo preview" />
-                <label class="file-input">
-                  <span>Upload (max 2 MB)</span>
-                  <input type="file" class="admin-photo-upload" accept="image/png,image/jpeg" />
-                </label>
-                <input type="hidden" name="profilePhotoUrl" value="${user.profilePhotoUrl || ''}" />
-              </div>
-            </div>
-          </div>
-
-          <div class="avatar-selector">
-            <p class="muted small">Or pick a preset avatar:</p>
-            <div class="avatar-grid admin-avatar-choices">
-              ${generateAvatarChoices(user.avatarUrl)}
-            </div>
-          </div>
-
-          <div class="modal-actions">
-            <button type="button" class="ghost cancel-edit">Cancel</button>
-            <button type="submit" class="primary">Save Changes</button>
-          </div>
-        </form>
-      </div>
-    </div>
-  `;
-
-  document.body.appendChild(overlay);
-  editProfileOverlay = overlay;
-  wireEditProfileModalEvents(overlay);
-}
-
-function generateAvatarChoices(currentAvatar) {
-  return AVAILABLE_AVATARS.map((url) => `
-    <label class="avatar-option ${currentAvatar === url ? 'selected' : ''}">
-      <input type="radio" name="avatarChoice" value="${url}"
-             ${currentAvatar === url ? 'checked' : ''} />
-      <img src="${url}" alt="Avatar option" />
-    </label>
-  `).join('');
-}
-
-function wireEditProfileModalEvents(overlay) {
-  overlay.addEventListener('click', (event) => {
-    if (event.target === overlay) {
-      closeEditProfileModal();
-    }
-  });
-
-  overlay.querySelector('.close-modal').addEventListener('click', closeEditProfileModal);
-  overlay.querySelector('.cancel-edit')?.addEventListener('click', closeEditProfileModal);
-
-  // Avatar upload
-  const avatarUpload = overlay.querySelector('.admin-avatar-upload');
-  const avatarPreview = overlay.querySelector('.admin-avatar-preview');
-  const avatarField = overlay.querySelector('input[name="avatarUrl"]');
-
-  avatarUpload.addEventListener('change', async (event) => {
-    const file = event.target.files?.[0];
-    if (!file || !validateImageFile(file)) {
-      event.target.value = '';
-      return;
-    }
-    try {
-      showToast('Uploading avatar...', 'info');
-      const { url } = await uploadImage('avatar', file);
-      avatarField.value = url;
-      avatarPreview.src = url;
-      overlay.querySelectorAll('.admin-avatar-choices input[type="radio"]')
-        .forEach((r) => (r.checked = false));
-      overlay.querySelectorAll('.admin-avatar-choices .avatar-option')
-        .forEach((opt) => opt.classList.remove('selected'));
-      showToast('Avatar uploaded', 'success');
-    } catch (error) {
-      showToast(error.message || 'Upload failed', 'error');
-    }
-  });
-
-  // Profile photo upload
-  const photoUpload = overlay.querySelector('.admin-photo-upload');
-  const photoPreview = overlay.querySelector('.admin-photo-preview');
-  const photoField = overlay.querySelector('input[name="profilePhotoUrl"]');
-
-  photoUpload.addEventListener('change', async (event) => {
-    const file = event.target.files?.[0];
-    if (!file || !validateImageFile(file)) {
-      event.target.value = '';
-      return;
-    }
-    try {
-      showToast('Uploading photo...', 'info');
-      const { url } = await uploadImage('photos', file);
-      photoField.value = url;
-      photoPreview.src = url;
-      showToast('Photo uploaded', 'success');
-    } catch (error) {
-      showToast(error.message || 'Upload failed', 'error');
-    }
-  });
-
-  // Preset avatar selection
-  overlay.querySelector('.admin-avatar-choices').addEventListener('change', (event) => {
-    const radio = event.target.closest('input[type="radio"]');
-    if (radio) {
-      avatarField.value = radio.value;
-      avatarPreview.src = radio.value;
-      overlay.querySelectorAll('.admin-avatar-choices .avatar-option')
-        .forEach((opt) => opt.classList.remove('selected'));
-      radio.closest('.avatar-option')?.classList.add('selected');
-    }
-  });
-
-  // Form submission
-  overlay.querySelector('#adminEditProfileForm').addEventListener('submit', handleEditProfileSubmit);
-}
-
-function validateImageFile(file) {
-  if (!file) return false;
-  const validTypes = ['image/jpeg', 'image/png'];
-  if (!validTypes.includes(file.type)) {
-    showToast('Only JPEG or PNG files are allowed', 'error');
-    return false;
-  }
-  if (file.size > 2 * 1024 * 1024) {
-    showToast('Images must be 2 MB or smaller', 'error');
-    return false;
-  }
-  return true;
-}
-
-function uploadImage(scope, file) {
-  const formData = new FormData();
-  formData.append('image', file);
-  return fetch(`/api/uploads/images?scope=${scope}`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${state.token}` },
-    body: formData
-  }).then(async (res) => {
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      throw new Error(body.error || 'Upload failed');
-    }
-    return res.json();
-  });
-}
-
-async function handleEditProfileSubmit(event) {
-  event.preventDefault();
-  const form = new FormData(event.target);
-  const userId = form.get('userId');
-
-  const payload = {
-    displayName: form.get('displayName'),
-    bio: form.get('bio') || null,
-    birthday: form.get('birthday') || null,
-    profileTheme: form.get('profileTheme'),
-    accentColor: form.get('accentColor'),
-    avatarUrl: form.get('avatarUrl') || null,
-    profilePhotoUrl: form.get('profilePhotoUrl') || null
-  };
-
-  try {
-    await authFetch(`/api/admin/users/${userId}`, {
-      method: 'PATCH',
-      body: JSON.stringify(payload)
-    });
-    showToast('Profile updated', 'success');
-    closeEditProfileModal();
-    loadAdminData();
-  } catch (error) {
-    showToast(error.message || 'Unable to update profile', 'error');
   }
 }
 
@@ -824,8 +468,8 @@ function handleApprovalAction(event) {
 }
 
 function wireEvents() {
-  if (el.addUserBtn) {
-    el.addUserBtn.addEventListener('click', openCreateUserModal);
+  if (el.createUserForm) {
+    el.createUserForm.addEventListener('submit', handleCreateUser);
   }
   if (el.refreshAdmin) {
     el.refreshAdmin.addEventListener('click', loadAdminData);

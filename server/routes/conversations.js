@@ -6,9 +6,7 @@ const {
   listMessages,
   createMessage,
   isMember,
-  getConversationById,
-  markMessagesRead,
-  getReadReceipts
+  getConversationById
 } = require('../db');
 const { authenticateRequest } = require('../auth');
 const events = require('../events');
@@ -89,70 +87,6 @@ router.post('/:conversationId/messages', async (req, res) => {
   } catch (error) {
     return res.status(400).json({ error: error.message || 'Failed to send message' });
   }
-});
-
-const thinkingSchema = z.object({
-  thinking: z.boolean()
-});
-
-router.post('/:conversationId/thinking', async (req, res) => {
-  const { conversationId } = req.params;
-  if (!req.user.bot) {
-    return res.status(403).json({ error: 'Only bots can use the thinking API' });
-  }
-  if (!(await isMember(conversationId, req.user.id))) {
-    return res.status(404).json({ error: 'Conversation not found' });
-  }
-  const parse = thinkingSchema.safeParse(req.body);
-  if (!parse.success) {
-    return res.status(400).json({ error: 'Invalid payload' });
-  }
-  events.emit('thinking:broadcast', {
-    conversationId,
-    userId: req.user.id,
-    displayName: req.user.displayName || req.user.username,
-    thinking: parse.data.thinking
-  });
-  return res.json({ ok: true, thinking: parse.data.thinking });
-});
-
-const readSchema = z.object({
-  messageId: z.string().uuid()
-});
-
-router.post('/:conversationId/read', async (req, res) => {
-  const { conversationId } = req.params;
-  if (!req.user.bot) {
-    return res.status(403).json({ error: 'Only bots can use the read receipt API' });
-  }
-  if (!(await isMember(conversationId, req.user.id))) {
-    return res.status(404).json({ error: 'Conversation not found' });
-  }
-  const parse = readSchema.safeParse(req.body);
-  if (!parse.success) {
-    return res.status(400).json({ error: 'Invalid payload' });
-  }
-  try {
-    const receipt = await markMessagesRead(conversationId, req.user.id, parse.data.messageId);
-    events.emit('read:receipt', {
-      conversationId,
-      userId: req.user.id,
-      displayName: req.user.displayName || req.user.username,
-      messageId: parse.data.messageId
-    });
-    return res.json({ ok: true, receipt });
-  } catch (error) {
-    return res.status(400).json({ error: error.message || 'Failed to mark as read' });
-  }
-});
-
-router.get('/:conversationId/read-receipts', async (req, res) => {
-  const { conversationId } = req.params;
-  if (!(await isMember(conversationId, req.user.id))) {
-    return res.status(404).json({ error: 'Conversation not found' });
-  }
-  const receipts = await getReadReceipts(conversationId);
-  return res.json({ receipts });
 });
 
 module.exports = router;

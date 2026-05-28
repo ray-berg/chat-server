@@ -170,37 +170,22 @@ Monitor pending/processed approvals.
 ### `POST /api/approvals`
 Submit a request. Payload:
 ```json
-{
-  "targetUserId": "manager-uuid",
-  "note": "Reason for approval",
-  "conversationId": "room-or-dm-uuid"
-}
+{ "targetUserId": "manager-uuid", "note": "Reason for approval" }
 ```
 Only managers can be targets; the API rejects non-manager IDs.
-- `conversationId` is optional but recommended. When present the server verifies the requester is a
-  member of that conversation and will echo the approval response back into that same channel. When
-  omitted the legacy behavior (DM response) is used.
 
 ### `POST /api/approvals/:id/respond`
 Managers approve or deny. Payload:
 ```json
 { "decision": "approved" } // or "denied"
 ```
-If approved, the server posts a message that contains the manager’s stored token. When the approval
-request referenced a `conversationId`, that message appears in that same room/DM so every member can
-see the approval status. If no conversation was supplied the server falls back to opening (or
-reusing) a direct message thread between the manager and requester. This token message is what bots
-should watch for.
+If approved, the server automatically opens (or reuses) a direct conversation between manager and requester and injects a message whose content is the manager’s stored token. This is the token bots should watch for.
 
 ### Token Handling Workflow
 1. Manager sets a 32-character token in their profile.
-2. Bot calls `POST /api/approvals` targeting the manager’s user ID and (optionally) passes the
-   conversation the request originated from.
-3. Manager approves. API ensures a token exists and posts the approval response message (containing
-   only the token string) back to that same conversation; if no `conversationId` was provided the
-   message is delivered via DM.
-4. Bot listens for the resulting `message:created` event (WebSocket or poll) in that conversation and
-   extracts the token from the message body.
+2. Bot calls `POST /api/approvals` targeting the manager’s user ID.
+3. Manager approves. API ensures token exists, emits a DM message containing only the token string.
+4. Bot listens for the DM (via WebSocket or poll) and extracts the token from the message body.
 
 ## WebSocket (`wss://host/ws?token=JWT`)
 

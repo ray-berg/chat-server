@@ -12,50 +12,6 @@ Modern messaging stack with role-aware administration, REST + WebSocket APIs, an
 - Channel moderator role with limited powers (disable accounts, reset passwords, review stats) plus visual badges across the UI.
 - Peer approval workflow so one user can request authorization from another (ask + approve/deny).
 - MariaDB-backed persistence (no more JSON files) for production-ready storage.
-- Markdown support in messages with full GFM rendering (code blocks, tables, lists, etc.).
-
-## Security
-
-The server implements authentication security best practices:
-
-### Password Policy
-
-All passwords must meet these requirements:
-- Minimum 8 characters
-- At least one uppercase letter
-- At least one lowercase letter
-- At least one number
-- At least one special character (`!@#$%^&*()` etc.)
-- Not in the common password blacklist
-
-### Account Lockout
-
-Failed login attempts are tracked per username:
-- **5 failed attempts** triggers a temporary lockout
-- **15 minute** lockout duration
-- Lockout clears automatically after the timeout
-- Successful login resets the failure counter
-
-### Token Security
-
-- **JWT_SECRET required in production** - server refuses to start without it
-- Default token lifetime: **2 hours** (configurable via `JWT_EXPIRES_IN`)
-- Logout endpoint (`POST /api/auth/logout`) blacklists tokens server-side
-- Blacklisted tokens are rejected immediately
-- Bcrypt with **12 rounds** for password hashing
-
-### Rate Limiting
-
-- Login: 10 requests per minute per IP
-- Registration: 5 requests per minute per IP
-
-### Environment Variables
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `JWT_SECRET` | **Production** | `local-dev-secret` | Secret for signing JWTs. Must be set in production. |
-| `JWT_EXPIRES_IN` | No | `2h` | Token expiration time (e.g., `2h`, `1d`) |
-| `ADMIN_PASSWORD` | No | `ChangeMe!23` | Initial admin password (must meet complexity requirements) |
 
 ## Getting Started
 
@@ -84,16 +40,6 @@ Re-running the script will reuse any existing TLS key/cert paths defined in `ser
 Deployments on host `chat` run from `/opt/chat-server`. Use `./deploy.sh` to rsync the current working tree into that directory (preserving `server/.env` and `server/certs/`) and adjust file ownership. By default, ownership is assigned to `root:root`, but you can provide a different account via `--owner` / `--group` or the `CHAT_SERVER_OWNER` and `CHAT_SERVER_GROUP` environment variables.
 
 For a one-shot deployment that also copies `.env.prod`, runs `npm install --production`, and starts the API/background worker, run `./deploy_latest.sh`. It accepts the same owner/group overrides, writes logs to `/opt/chat-server/logs/chat-server.log`, and maintains a PID file under `/opt/chat-server/server/chat-server.pid`.
-
-### Running directly from this repo (home-directory packaging)
-
-When you want to run the service straight from your checked-out workspace without copying files into `/opt`, use `./deploy_home.sh`. The script:
-
-- Picks the first environment file it finds (`.env.prod`, `.env`, or `server/.env`), validates required variables, and exports it through `CHAT_SERVER_ENV_FILE` so the server reports the exact config it loaded.
-- Installs production dependencies in `server/`, ensures `logs/` exists under the repo, and stops any previously launched background copy (tracked via `logs/chat-server-home.pid`).
-- Starts `npm run start` from the repo and tails into `logs/chat-server-home.log`, while the app itself still writes to the `DEBUG_LOG_PATH` defined in your env file (defaults to `logs/debug.log`).
-
-After launching, the script prints a short configuration summary plus the log paths so you can immediately `tail -f` the right files. To stop the instance, run `kill $(cat logs/chat-server-home.pid)`.
 
 ### Database setup
 
@@ -133,7 +79,6 @@ Default seeded admin:
 
 - `POST /api/auth/register` – create a user account.
 - `POST /api/auth/login` – exchange credentials for a JWT.
-- `POST /api/auth/logout` – invalidate current token (requires auth).
 - `GET /api/auth/me` – fetch current profile.
 - `GET /api/conversations` – list joined threads.
 - `POST /api/conversations/direct` – open/find a DM with another user.
