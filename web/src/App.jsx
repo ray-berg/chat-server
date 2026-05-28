@@ -206,6 +206,7 @@ function Shell() {
                 channel={activeChannel}
                 messages={messages}
                 usersById={usersById}
+                currentUserId={currentUser?.id}
                 typing={typing}
                 thinking={thinking}
                 onOpenThread={openThread}

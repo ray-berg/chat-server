@@ -14,6 +14,10 @@ import { timeShort, timeFull, relTime } from '../lib/format.js';
 
 const UNKNOWN = { name: 'Unknown', initials: '?', avatarColor: 'var(--gray-700)', role: 'user' };
 
+// Cap the reading measure so a line holds ~15-18 words (no head-turning on wide
+// screens). Tune this single value to widen/narrow the message bubbles.
+const BUBBLE_MAX_WIDTH = 640;
+
 function isSameRun(a, b) {
   if (!a || !b) return false;
   if (a.author !== b.author) return false;
@@ -334,8 +338,9 @@ function AttachmentCard({ att }) {
   );
 }
 
-export function MessageRun({ msg, usersById, isFirst, onOpenThread, onReact, onRespondApproval, density }) {
+export function MessageRun({ msg, usersById, isFirst, currentUserId, onOpenThread, onReact, onRespondApproval, density }) {
   const author = usersById[msg.author] || UNKNOWN;
+  const mine = currentUserId && msg.author === currentUserId;
   const [hovering, setHovering] = React.useState(false);
 
   if (msg.system) {
@@ -413,10 +418,27 @@ export function MessageRun({ msg, usersById, isFirst, onOpenThread, onReact, onR
             </div>
           )}
 
-          <div style={{ fontSize: 14, lineHeight: 1.5, color: 'var(--fg-2)' }}>
-            {msg.text && renderRich(msg.text)}
-            {msg.streaming && <StreamCursor />}
-          </div>
+          {(msg.text || msg.streaming) && (
+            <div
+              style={{
+                display: 'inline-block',
+                maxWidth: BUBBLE_MAX_WIDTH,
+                fontSize: 14,
+                lineHeight: 1.5,
+                color: 'var(--fg-2)',
+                padding: '7px 11px',
+                borderRadius: 10,
+                background: mine
+                  ? 'color-mix(in oklab, var(--accent-color, var(--blue-500)) 16%, var(--bg-surface))'
+                  : 'var(--bg-surface)',
+                border: `1px solid ${mine ? 'color-mix(in oklab, var(--accent-color, var(--blue-500)) 35%, transparent)' : 'var(--border-subtle)'}`,
+                overflowWrap: 'anywhere',
+              }}
+            >
+              {msg.text && renderRich(msg.text)}
+              {msg.streaming && <StreamCursor />}
+            </div>
+          )}
 
           {msg.code && <CodeBlock code={msg.code} />}
           {msg.toolCall && <ToolCallCard tc={msg.toolCall} />}
@@ -603,7 +625,7 @@ function DotsRow({ label }) {
   );
 }
 
-export function MessageList({ channel, messages, usersById, onOpenThread, onReact, onRespondApproval, typing = [], thinking = [], density }) {
+export function MessageList({ channel, messages, usersById, currentUserId, onOpenThread, onReact, onRespondApproval, typing = [], thinking = [], density }) {
   const scrollerRef = React.useRef(null);
   React.useEffect(() => {
     const s = scrollerRef.current;
@@ -626,6 +648,7 @@ export function MessageList({ channel, messages, usersById, onOpenThread, onReac
         msg={msg}
         usersById={usersById}
         isFirst={isFirst}
+        currentUserId={currentUserId}
         onOpenThread={onOpenThread}
         onReact={onReact}
         onRespondApproval={onRespondApproval}
