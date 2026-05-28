@@ -1,0 +1,89 @@
+/* Global resets + animations for the NOCOS chat shell.
+   Token definitions live in colors_and_type.css (imported first). */
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: var(--bg-app);
+  color: var(--fg-2);
+  overflow: hidden;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+button {
+  font-family: var(--font-sans);
+  cursor: pointer;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+input,
+textarea,
+select {
+  font-family: inherit;
+}
+
+input[type='text'],
+input[type='search'],
+input[type='password'],
+textarea {
+  color: var(--fg-1);
+}
+
+::selection {
+  background: color-mix(in oklab, var(--accent-color, var(--blue-500)) 35%, transparent);
+  color: var(--fg-1);
+}
+
+@keyframes chat-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+@keyframes chat-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
+@keyframes thinking-bob {
+  0%,
+  60%,
+  100% {
+    opacity: 0.3;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+
+.thinking-dot {
+  animation: thinking-bob 1.2s ease-in-out infinite;
+  display: inline-block;
+}

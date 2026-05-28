@@ -1,7 +1,23 @@
 const express = require('express');
 const { z } = require('zod');
-const { authenticateRequest, hashPassword, verifyPassword, validatePassword } = require('../auth');
-const { listUsers, updateUserProfile, getUserById, getUserWithPassword, resetUserPassword } = require('../db');
+const {
+  authenticateRequest,
+  hashPassword,
+  verifyPassword,
+  validatePassword,
+  generateApiKey,
+  hashApiKey
+} = require('../auth');
+const {
+  listUsers,
+  updateUserProfile,
+  getUserById,
+  getUserWithPassword,
+  resetUserPassword,
+  createApiKey,
+  listApiKeys,
+  deleteApiKey
+} = require('../db');
 
 const router = express.Router();
 router.use(authenticateRequest);
@@ -91,6 +107,61 @@ router.post('/me/password', async (req, res) => {
   const newHash = await hashPassword(newPassword);
   await resetUserPassword(req.user.id, newHash);
   return res.json({ ok: true });
+});
+
+// ---- API keys ----
+// Any authenticated user manages their OWN keys (self-scoped). A key
+// authenticates as its owner and carries exactly that owner's role - so a
+// non-admin/bot account gets a non-admin key. Admins can also provision keys
+// for other accounts via /api/admin/users/:id/api-keys.
+
+const apiKeyLabelSchema = z.object({ label: z.string().max(80).optional() });
+
+async function issueKey(userId, label) {
+  const key = generateApiKey();
+  const meta = await createApiKey({
+    userId,
+    label: label || null,
+    keyHash: hashApiKey(key),
+    keyPrefix: key.slice(0, 12)
+  });
+  // Full key is returned exactly once and never stored in plaintext.
+  return { ...meta, key };
+}
+
+router.get('/me/api-keys', async (req, res) => {
+  const keys = await listApiKeys(req.user.id);
+  return res.json({ keys });
+});
+
+router.post('/me/api-keys', async (req, res) => {
+  const parse = apiKeyLabelSchema.safeParse(req.body || {});
+  if (!parse.success) {
+    return res.status(400).json({ error: 'Invalid payload' });
+  }
+  const created = await issueKey(req.user.id, parse.data.label);
+  return res.status(201).json({ apiKey: created });
+});
+
+router.post('/me/api-keys/:id/rotate', async (req, res) => {
+  const parse = apiKeyLabelSchema.safeParse(req.body || {});
+  if (!parse.success) {
+    return res.status(400).json({ error: 'Invalid payload' });
+  }
+  const removed = await deleteApiKey(req.params.id, req.user.id);
+  if (!removed) {
+    return res.status(404).json({ error: 'API key not found' });
+  }
+  const created = await issueKey(req.user.id, parse.data.label);
+  return res.status(201).json({ apiKey: created });
+});
+
+router.delete('/me/api-keys/:id', async (req, res) => {
+  const removed = await deleteApiKey(req.params.id, req.user.id);
+  if (!removed) {
+    return res.status(404).json({ error: 'API key not found' });
+  }
+  return res.status(204).send();
 });
 
 module.exports = router;

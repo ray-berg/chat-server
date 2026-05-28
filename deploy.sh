@@ -83,9 +83,14 @@ run install -d -m 755 "$TARGET_DIR"
 RSYNC_FLAGS=(-rlptD --delete)
 RSYNC_EXCLUDES=(
   --exclude '.git/'
+  --exclude '.claude/'
+  --exclude 'node_modules/'
   --exclude 'server/.env'
   --exclude 'server/certs/'
   --exclude 'server/uploads/'
+  --exclude 'logs/'
+  --exclude 'tasks/'
+  --exclude 'Chat Server UI.zip'
   --exclude 'chat-server.tar.gz'
 )
 

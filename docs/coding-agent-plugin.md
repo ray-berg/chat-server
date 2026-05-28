@@ -1,252 +1,171 @@
 # Chat Service Plugin API
 
-This document explains how a coding agent can integrate with the Secure Chat Server. It focuses on the REST/WebSocket interfaces that agents commonly use when building plugins or bot workers.
+How a coding agent / bot integrates with the Secure Chat Server. Covers the REST
+and WebSocket interfaces and the auth model. This reflects the current server
+(private deployment: self-registration disabled, per-admin API keys, bot APIs).
 
 ## Conventions
 
-- **Base URL:** `https://chat.ttw.internal` (replace with your deployment host/port). All REST requests are rooted at `/api`.
-- **Authentication:** Bearer JWT obtained via `POST /api/auth/login`. Include `Authorization: Bearer <token>` on every authenticated call and in the `token` query string when connecting to WebSocket.
-- **Content type:** `application/json` unless otherwise noted.
+- **Base URL:** `https://chat.ttw.internal` (also `https://chat.nocos.dev`). REST is rooted at `/api`.
+- **Content type:** `application/json` unless noted.
 - **IDs:** UUID strings.
 
 ## Authentication
 
+Send credentials as `Authorization: Bearer <token>`. Two kinds of token are accepted:
+
+| Token | Format | Works on | Notes |
+|---|---|---|---|
+| **API key** | `csk_<base64url>` | REST **and** WebSocket | Per-admin, **full-admin scope**, non-expiring, revocable. Recommended for bots. |
+| **JWT** | from `POST /api/auth/login` | REST **and** WebSocket | Expires in 2h. |
+
+A bot can use a single `csk_` API key for everything (REST calls and the realtime
+WebSocket). Keys are stored only as SHA-256 hashes and shown once at creation.
+
+### Getting an API key
+
+An administrator mints keys for the bot's account (the key authenticates *as* that
+account with full admin rights):
+
+- UI: sign in as an admin -> user menu -> **Profile & settings** -> **API keys** -> Create.
+- API (admin JWT or another key):
+  - `GET /api/users/me/api-keys` -> `{ keys: [{ id, label, keyPrefix, createdAt, lastUsedAt }] }`
+  - `POST /api/users/me/api-keys` `{ "label": "automation" }` -> `{ apiKey: { id, label, keyPrefix, createdAt, key } }` - **`key` is shown once**
+  - `POST /api/users/me/api-keys/:id/rotate` `{ "label"? }` -> new `{ apiKey: { …, key } }` (old key stops working)
+  - `DELETE /api/users/me/api-keys/:id` -> 204
+
+> API-key endpoints require the caller to be an `admin`. The key inherits the
+> owning admin's privileges; revoke a key to cut off access (it is not affected
+> by JWT logout).
+
 ### `POST /api/auth/login`
-Request:
 ```json
 { "username": "bot_user", "password": "s3cret" }
 ```
-Response:
-```json
-{
-  "token": "JWT...",
-  "user": {
-    "id": "...",
-    "username": "...",
-    "displayName": "...",
-    "role": "user|moderator|admin",
-    "manager": false,
-    "presenceStatus": "online",
-    "idleTimeoutMinutes": 5
-  }
-}
-```
+-> `{ "token": "JWT…", "user": { … } }`. Lockout after 5 failed attempts for 15 min (`429`).
 
 ### `GET /api/auth/me`
-Returns the sanitized user object for the current token. Use this to confirm privileges (e.g., `manager: true`).
+Returns the sanitized current user. Note: this does **not** include the `bot` flag
+or the manager token; the `bot` flag is visible via the admin user endpoints.
 
-## User + Directory APIs
+### Registration is disabled
+`POST /api/auth/register` returns **403** on this server. Outsiders request access:
 
-### `GET /api/users?q=<query>`
-Search for users (used for DM bootstrap). Results include presence status and whether the user is a manager.
+- `POST /api/auth/request-access` (public, rate-limited) `{ username, displayName, email?, note? }` -> `{ ok: true }` (no account is created; an admin reviews and approves).
 
-### `GET /api/users/me/profile`
-Full profile (bio, avatar, manager token if role permits). Use this to cache your own manager token when acting as a manager.
+Accounts are otherwise provisioned by an admin (`POST /api/admin/users`, below).
 
-### `PUT /api/users/me/profile`
-Update profile fields. Payload example:
-```json
-{
-  "displayName": "Bot Operator",
-  "profileTheme": "dark",
-  "profilePhotoUrl": "/uploads/photos/abc123.png",
-  "avatarUrl": "/uploads/avatars/def456.png",
-  "presenceStatus": "dnd",
-  "idleTimeoutMinutes": 15,
-  "managerToken": "N008G0NN4G1V3UP50E4SYMYPR3Y!!ASS"
-}
-```
-- `presenceStatus` accepts `online`, `idle`, `away`, `dnd`, or `offline`.
-- `idleTimeoutMinutes` controls when the server automatically marks the user idle (min 1, max 240, defaults to 5).
-- `managerToken` requires `manager: true` and must be either `""` or exactly 32 characters. Bots should never mutate tokens; they read them from managers via approvals.
-- `profilePhotoUrl` and `avatarUrl` typically reference files uploaded via the `/api/uploads/images` endpoint documented below. Store the returned path (e.g., `/uploads/photos/...`) so every client can resolve it without extra auth hops.
+## Users & Directory
 
-### `POST /api/users/me/password`
-Self-service password reset. Requires current password + new password (>= 8 chars).
+- `GET /api/users?q=<query>` -> `{ users }` (lightweight directory, <=25; presence + manager flag included).
+- `GET /api/users/me/profile` -> `{ profile }` (full profile incl. bio, birthday, accentColor, profileTheme, profilePhotoUrl, idleTimeoutMinutes, managerToken, lastRoomId).
+- `PUT /api/users/me/profile` - update any of:
+  `displayName, bio, birthday (YYYY-MM-DD), avatarUrl, profilePhotoUrl, profileTheme, accentColor, presenceStatus, idleTimeoutMinutes, managerToken`.
+  - `presenceStatus` in `online | idle | away | dnd | offline`.
+  - `managerToken` requires `manager: true` and must be `""` or exactly 32 chars.
+- `POST /api/users/me/password` `{ currentPassword, newPassword }` (complexity enforced).
 
-## Conversations + Messaging
+## Conversations & Messaging
 
-### `GET /api/conversations`
-List all conversations for the token holder. Room conversations include an `isPublic` boolean so workers know if they can join directly, and `members` contains presence metadata for each participant.
+- `GET /api/conversations` -> `{ conversations }` - DMs + rooms you belong to. Each has `type` (`direct`/`room`), `title`, `isPublic`, `members[]` (with presence), `lastMessage`, `lastMessageAt`.
+- `POST /api/conversations/direct` `{ targetUserId }` -> `{ conversation }` (201 new / 200 existing); emits `conversation:updated` over WS.
+- `GET /api/conversations/:id` -> `{ conversation }` (member only).
+- `GET /api/conversations/:id/messages?before=<ISO>` -> `{ messages }` (newest last, <=50). Each message: `{ id, content, format, createdAt, userId, displayName, role, avatarUrl, profilePhotoUrl }`.
+- `POST /api/conversations/:id/messages` `{ content, format? }` -> `{ message }`. `content` 1-2000 chars; `format` in `text | markdown` (default `text`).
 
-### `POST /api/conversations/direct`
-Create or fetch a direct chat with someone.
-```json
-{ "targetUserId": "uuid" }
-```
+### Bot-only signals (require `bot: true`)
+- `POST /api/conversations/:id/thinking` `{ thinking: true|false }` -> fan-outs a WS `thinking` event to the conversation. Use it to show a "thinking…" indicator while you work.
+- `POST /api/conversations/:id/read` `{ messageId }` -> marks read up to a message and emits a WS `read:receipt`.
+- `GET /api/conversations/:id/read-receipts` -> `{ receipts }` (bot read receipts for the conversation).
 
-### `GET /api/conversations/:id`
-Fetch metadata for a conversation (title, members).
-
-### `GET /api/conversations/:id/messages?before=<ISO>`
-Pull historical messages, newest last.
-- Message objects expose `format` so your client knows whether to treat `content` as plain text or markdown.
-
-### `POST /api/conversations/:id/messages`
-Send a message.
-```json
-{ "content": "Hello!", "format": "markdown" }
-```
-Limits: 1–2000 characters.
-- `format` is optional (`"text"` default). Set it to `"markdown"` to opt into markdown rendering on all clients.
-- Every message payload (REST/WebSocket) now includes the chosen `format` so consumers can render accordingly.
-
-### Direct Message Workflow
-1. **Create or fetch the thread:** Call `POST /api/conversations/direct` with the teammate’s user ID. The API responds with the conversation object (existing or newly created) and simultaneously emits a `conversation:updated` WebSocket payload to both parties so the UI sidebar reflects the DM.
-2. **Send the first message:** Use `POST /api/conversations/{conversationId}/messages` with the returned `id`. The UI keeps an optimistic “Sending…” placeholder until the server responds, then marks the message as “Delivered” (or “Failed” if the request errors). Your client should mimic this behavior for a responsive UX.
-3. **Receive updates:** Both participants receive `message:created` events over WebSocket. Include the token in the `wss://host/ws?token=JWT` connection so you can merge these events into the transcript immediately.
-4. **Typing/thinking signals (optional):** Clients may send `{type:"typing", conversationId, typing:true|false}` to show “typing…” and `{type:"thinking", conversationId, thinking:true|false}` to show “thinking…”. The server fan-outs these signals to the rest of the conversation only when the caller belongs to that thread.
-5. **UI hooks:** The SPA exposes a **+ DM** button in the Direct Messages panel that opens a searchable dialog backed by the same APIs. Plugin or bot clients can follow the steps above to replicate the workflow programmatically.
-
-### Profile Media Uploads
-
-Upload endpoints accept multipart form data and return a CDN-safe URL that you can store in the user profile.
-
-#### `POST /api/uploads/images?scope=photo|avatar`
-Payload: `FormData` with a single field named `image` (JPEG or PNG, ≤ 2 MB).
-
-Response:
-```json
-{ "url": "/uploads/photos/uuid-filename.png" }
-```
-
-- `scope=photo` stores the image under `/uploads/photos`, while `scope=avatar` stores it under `/uploads/avatars`.
-- After receiving the URL, call `PUT /api/users/me/profile` with `profilePhotoUrl` or `avatarUrl` set to that path. The SPA already strings these together so other users immediately see the updated photo via standard `resolveAvatar` logic.
+### Direct message workflow
+1. `POST /api/conversations/direct` with the teammate's user ID -> conversation object (both parties get a `conversation:updated` WS event).
+2. `POST /api/conversations/{id}/messages` to send.
+3. Receive `message:created` over WS (or poll the messages endpoint).
+4. Optionally toggle `thinking`/`typing` (see WS) for responsive UX.
 
 ## Rooms & Access Control
 
-Rooms carry an `isPublic` flag plus join request metadata on `/api/rooms` responses:
+- `GET /api/rooms` -> `{ rooms }`. Each room: `{ id, title, isPublic, memberCount, isMember, banned, joinRequestStatus, pendingRequestCount, members[] }`.
+- `POST /api/rooms/:id/join` -> join a public room (`403` if private - request access).
+- `POST /api/rooms/:id/activate` -> mark as your active room.
+- `POST /api/rooms/:id/request-access` `{ note? }` -> joins if public, else creates a pending request (201).
 
+Moderator/admin only:
+- `POST /api/rooms` `{ title (3-80), isPublic? }` -> create a room.
+- `PATCH /api/rooms/:id` `{ isPublic }` -> toggle visibility (must be a member).
+- `POST /api/rooms/:id/members` `{ targetUserId }` -> add a member directly.
+- `POST /api/rooms/:id/ban` `{ targetUserId, reason? }`.
+- `GET /api/rooms/:id/requests` -> pending join requests.
+- `POST /api/rooms/:id/requests/:requestId/respond` `{ decision: "approved"|"denied" }`.
+
+## Approvals & Manager Tokens
+
+Bots request approval from a manager and receive a 32-char token (delivered as a DM,
+or into a referenced conversation) when approved.
+
+- `GET /api/approvals?direction=incoming|outgoing|all` -> `{ requests }`.
+- `POST /api/approvals` `{ targetUserId, note?, conversationId? }` - target must be a `manager`. If `conversationId` is given (and you're a member), the approval token is delivered there; otherwise via DM.
+- `POST /api/approvals/:id/respond` `{ decision: "approved"|"denied" }` - approver must be a manager with a 32-char `managerToken` set; on approve the token is posted as a message. **Watch `message:created` for a 32-char body.**
+- `DELETE /api/approvals/:id` - requester cancels a pending request.
+
+## Profile Media Uploads
+
+- `POST /api/uploads/images?scope=avatar|photo` - multipart form, field `image` (JPEG/PNG <= 2 MB) -> `{ url: "/uploads/<scope>/<uuid>.<ext>" }`. Then `PUT /api/users/me/profile` with `avatarUrl` or `profilePhotoUrl` set to that path.
+
+## Admin APIs
+
+Requires an admin (some endpoints allow moderators). All under `/api/admin`.
+
+- `GET /users?q=` (admin/mod) · `GET /users/:id` (admin/mod)
+- `PATCH /users/:id` (admin/mod; a moderator cannot modify admins) - fields: `role` (admin-only), `status`, `manager`, `bot`, plus profile fields `displayName, bio, birthday, avatarUrl, profilePhotoUrl, profileTheme, accentColor`.
+- `POST /users` (admin) `{ username, password, displayName, role?, manager?, bot? }`
+- `POST /users/:id/reset-password` (admin/mod) `{ password }`
+- `DELETE /users/:id` (admin)
+- `GET /stats` (admin/mod) -> `{ stats: { users, conversations, messages } }`
+- `GET /audit-logs` (admin)
+- **Access requests:** `GET /access-requests?status=pending|approved|denied` (admin/mod) · `POST /access-requests/:id/approve` (admin) `{ password, role? }` (creates the account) · `POST /access-requests/:id/deny` (admin).
+
+> To mark an account as a bot (enabling the `thinking`/`read` APIs), an admin sets
+> `bot: true` via `POST /api/admin/users` or `PATCH /api/admin/users/:id`.
+
+## WebSocket (`wss://<host>/ws?token=<JWT-or-csk_key>`)
+
+Connect with **either** a JWT or a `csk_` API key in the `token` query parameter.
+On connect the server sends:
 ```json
-{
-  "id": "room-uuid",
-  "title": "Lobby",
-  "isPublic": true,
-  "memberCount": 12,
-  "isMember": true,
-  "joinRequestStatus": "pending|approved|denied|null",
-  "pendingRequestCount": 2,
-  "members": [ ... ]
-}
+{ "type": "ready", "user": { … }, "conversations": [ … ], "serverInstanceId": "…" }
 ```
+(`serverInstanceId` changes on each server restart - useful to detect restarts and resync.)
 
-- Public rooms (`isPublic: true`) accept `POST /api/rooms/:id/join` from any user.
-- Private rooms require a moderator to approve the request, or a moderator can add a user directly.
-
-### `PATCH /api/rooms/:id`
-Moderators in a given room can toggle visibility.
-```json
-{ "isPublic": false }
-```
-
-### `POST /api/rooms/:id/members`
-Moderators may add a user without approval.
-```json
-{ "targetUserId": "user-uuid" }
-```
-
-### `POST /api/rooms/:id/request-access`
-Request admission to a private room. If the room is public the server simply joins the user.
-```json
-{ "note": "Optional context" }
-```
-
-### `GET /api/rooms/:id/requests`
-Room moderators can list pending join requests. Each request includes the requester metadata and current status.
-
-### `POST /api/rooms/:id/requests/:requestId/respond`
-Approve or deny a pending request. Approved requests automatically add the requester to the room and broadcast updated membership to all subscribers.
-```json
-{ "decision": "approved" }
-```
-
-## Approvals + Manager Tokens
-
-Used by bots to request approval from managers and receive a 32-character token when approved.
-
-### `GET /api/approvals?direction=incoming|outgoing|all`
-Monitor pending/processed approvals.
-
-### `POST /api/approvals`
-Submit a request. Payload:
-```json
-{
-  "targetUserId": "manager-uuid",
-  "note": "Reason for approval",
-  "conversationId": "room-or-dm-uuid"
-}
-```
-Only managers can be targets; the API rejects non-manager IDs.
-- `conversationId` is optional but recommended. When present the server verifies the requester is a
-  member of that conversation and will echo the approval response back into that same channel. When
-  omitted the legacy behavior (DM response) is used.
-
-### `POST /api/approvals/:id/respond`
-Managers approve or deny. Payload:
-```json
-{ "decision": "approved" } // or "denied"
-```
-If approved, the server posts a message that contains the manager’s stored token. When the approval
-request referenced a `conversationId`, that message appears in that same room/DM so every member can
-see the approval status. If no conversation was supplied the server falls back to opening (or
-reusing) a direct message thread between the manager and requester. This token message is what bots
-should watch for.
-
-### Token Handling Workflow
-1. Manager sets a 32-character token in their profile.
-2. Bot calls `POST /api/approvals` targeting the manager’s user ID and (optionally) passes the
-   conversation the request originated from.
-3. Manager approves. API ensures a token exists and posts the approval response message (containing
-   only the token string) back to that same conversation; if no `conversationId` was provided the
-   message is delivered via DM.
-4. Bot listens for the resulting `message:created` event (WebSocket or poll) in that conversation and
-   extracts the token from the message body.
-
-## WebSocket (`wss://host/ws?token=JWT`)
-
-- Messages are JSON. Agent must authenticate via the `token` query parameter.
-- On connect, server sends:
-```json
-{ "type": "ready", "user": {...}, "conversations": [...] }
-```
-
-### Events to listen for
+### Server -> client events
 | Type | Payload | Notes |
 |------|---------|-------|
-| `message:created` | `{ conversationId, message }` | New chat message (includes `format: "text"|"markdown"`). Token deliveries for approvals arrive here. |
-| `message:ack` | `{ message }` | Echo for sent messages. |
-| `conversation:updated` | `{ conversation }` | Membership/title changes. |
-| `presence:updated` | `{ user }` | Live presence changes. |
-| `approval:updated` | `{ request }` | Approval state transitions. |
-| `thinking` | `{ conversationId, userId, thinking, displayName }` | Bots can toggle a “thinking…” indicator for other members of the chat. |
-| `error` | `{ error }` | Invalid payloads, auth issues, etc. |
+| `ready` | `{ user, conversations, serverInstanceId }` | sent once on connect |
+| `message:created` | `{ conversationId, message }` | new message (incl. `format`); approval tokens arrive here |
+| `message:ack` | `{ message }` | echo for messages you sent over WS |
+| `conversation:updated` | `{ conversation }` | membership/title/visibility changes |
+| `presence:updated` | `{ user }` | live presence |
+| `approval:updated` | `{ request }` | approval state transitions |
+| `typing` | `{ conversationId, userId, displayName, typing }` | |
+| `thinking` | `{ conversationId, userId, displayName, thinking }` | from the bot `thinking` API or WS message |
+| `read:receipt` | `{ conversationId, userId, displayName, messageId }` | bot read receipts |
+| `error` | `{ error }` | |
 
-### Client → Server messages
-Currently supported payloads:
+### Client -> server messages
 ```json
-{ "type": "ping" }                // expect {type:"pong"}
-{ "type": "conversation:list" }   // refresh conversation list
-{ "type": "message:send", "conversationId": "...", "content": "...", "format": "markdown" }
-{ "type": "typing", "conversationId": "...", "typing": true }
-{ "type": "thinking", "conversationId": "...", "thinking": true }
+{ "type": "ping" }
+{ "type": "conversation:list" }
+{ "type": "message:send", "conversationId": "…", "content": "…", "format": "markdown" }
+{ "type": "typing", "conversationId": "…", "typing": true }
+{ "type": "thinking", "conversationId": "…", "thinking": true }
 ```
 
-## Admin APIs (Optional)
+## Plugin tips
 
-For automation that creates or manages accounts (requires admin/moderator token):
-
-- `GET /api/admin/users`, `GET /api/admin/stats`
-- `POST /api/admin/users` (fields: `username`, `displayName`, `password`, `role`, `manager`)
-- `PATCH /api/admin/users/:id` (fields: `role`, `status`, `manager`)
-- `POST /api/admin/users/:id/reset-password`
-- `DELETE /api/admin/users/:id`
-
-## Plugin Implementation Tips
-
-1. **Session flow:** Log in → store token → open WebSocket (for live messages) → poll REST endpoints as needed.
-2. **Approvals:** When acting as a bot requester, use `/api/approvals` + WebSocket `message:created` for token delivery. Validate that the message content is 32 characters before trusting it.
-3. **Managers:** The manager flag comes across in `/api/users` results. Present UI or logic that only allows bots to request approval from users where `manager === true`.
-4. **Rate limiting:** Keep REST calls efficient—batch requests where possible and rely on WebSocket events for realtime updates.
-5. **Reconnection:** Implement retry logic for WebSocket (server expects clients to reconnect as implemented in the SPA).
-
-This API surface is stable for plugin development; new fields (such as future metadata) appear additively. Monitor release notes for breaking changes.
+1. **Auth:** mint a `csk_` API key for the bot's admin account and use it for both REST and the WebSocket. No token refresh needed.
+2. **Provisioning:** there is no self-registration; create the bot account via `POST /api/admin/users` (or approve a request-access submission).
+3. **Bot flag:** ensure the account has `bot: true` to use the `thinking`/`read` APIs.
+4. **Realtime:** open the WS for `message:created`; reconnect on close (watch `serverInstanceId` to detect a server restart and re-sync conversations).
+5. **Approvals:** validate that a token message body is exactly 32 chars before trusting it.
+6. **Rate limits:** auth endpoints are rate-limited; batch REST calls and prefer WS events for realtime.

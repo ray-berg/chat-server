@@ -1,6 +1,13 @@
 const express = require('express');
 const { z } = require('zod');
-const { authenticateRequest, requireRole, hashPassword, validatePassword } = require('../auth');
+const {
+  authenticateRequest,
+  requireRole,
+  hashPassword,
+  validatePassword,
+  generateApiKey,
+  hashApiKey
+} = require('../auth');
 const {
   listUsers,
   updateUserAccess,
@@ -12,7 +19,13 @@ const {
   resetUserPassword,
   deleteUser,
   recordAuditLog,
-  listAuditLogs
+  listAuditLogs,
+  listAccessRequests,
+  getAccessRequestById,
+  decideAccessRequest,
+  createApiKey,
+  listApiKeys,
+  deleteApiKey
 } = require('../db');
 
 const router = express.Router();
@@ -214,6 +227,126 @@ router.get('/stats', requireRole('admin', 'moderator'), async (req, res) => {
 router.get('/audit-logs', requireRole('admin'), async (req, res) => {
   const logs = await listAuditLogs({ limit: 200 });
   return res.json({ logs });
+});
+
+// ---- Access requests (outsider account requests) ----
+
+router.get('/access-requests', requireRole('admin', 'moderator'), async (req, res) => {
+  const status = ['pending', 'approved', 'denied'].includes(req.query.status) ? req.query.status : undefined;
+  const requests = await listAccessRequests({ status });
+  return res.json({ requests });
+});
+
+const approveSchema = z.object({
+  password: z.string().min(8).max(128),
+  role: roleEnum.default('user')
+});
+
+router.post('/access-requests/:id/approve', requireRole('admin'), async (req, res) => {
+  const parse = approveSchema.safeParse(req.body);
+  if (!parse.success) {
+    return res.status(400).json({ error: 'Invalid payload', details: parse.error.errors });
+  }
+  const request = await getAccessRequestById(req.params.id);
+  if (!request) {
+    return res.status(404).json({ error: 'Request not found' });
+  }
+  if (request.status !== 'pending') {
+    return res.status(409).json({ error: 'Request already processed' });
+  }
+  const passwordValidation = validatePassword(parse.data.password);
+  if (!passwordValidation.valid) {
+    return res.status(400).json({ error: 'Password does not meet requirements', details: passwordValidation.errors });
+  }
+  if (await getUserByUsername(request.username)) {
+    return res.status(409).json({ error: 'A user with that username already exists' });
+  }
+  const passwordHash = await hashPassword(parse.data.password);
+  const user = await createUser({
+    username: request.username,
+    passwordHash,
+    displayName: request.displayName,
+    role: parse.data.role
+  });
+  await decideAccessRequest({ id: request.id, deciderId: req.user.id, decision: 'approved', createdUserId: user.id });
+  await recordAuditLog({
+    actorId: req.user.id,
+    action: 'admin.access_request.approve',
+    targetId: user.id,
+    metadata: { username: user.username, requestId: request.id }
+  });
+  return res.status(201).json({ user });
+});
+
+// ---- Admin-provisioned API keys for any account (e.g. bot service accounts) ----
+
+router.get('/users/:id/api-keys', requireRole('admin'), async (req, res) => {
+  const target = await getUserById(req.params.id);
+  if (!target) {
+    return res.status(404).json({ error: 'User not found' });
+  }
+  const keys = await listApiKeys(req.params.id);
+  return res.json({ keys });
+});
+
+const apiKeyLabelSchema = z.object({ label: z.string().max(80).optional() });
+
+router.post('/users/:id/api-keys', requireRole('admin'), async (req, res) => {
+  const parse = apiKeyLabelSchema.safeParse(req.body || {});
+  if (!parse.success) {
+    return res.status(400).json({ error: 'Invalid payload' });
+  }
+  const target = await getUserById(req.params.id);
+  if (!target) {
+    return res.status(404).json({ error: 'User not found' });
+  }
+  const key = generateApiKey();
+  const meta = await createApiKey({
+    userId: req.params.id,
+    label: parse.data.label || null,
+    keyHash: hashApiKey(key),
+    keyPrefix: key.slice(0, 12)
+  });
+  await recordAuditLog({
+    actorId: req.user.id,
+    action: 'admin.api_key.create',
+    targetId: req.params.id,
+    metadata: { keyId: meta.id, label: meta.label }
+  });
+  // Full key returned exactly once.
+  return res.status(201).json({ apiKey: { ...meta, key } });
+});
+
+router.delete('/users/:id/api-keys/:keyId', requireRole('admin'), async (req, res) => {
+  const removed = await deleteApiKey(req.params.keyId, req.params.id);
+  if (!removed) {
+    return res.status(404).json({ error: 'API key not found' });
+  }
+  await recordAuditLog({
+    actorId: req.user.id,
+    action: 'admin.api_key.revoke',
+    targetId: req.params.id,
+    metadata: { keyId: req.params.keyId }
+  });
+  return res.status(204).send();
+});
+
+router.post('/access-requests/:id/deny', requireRole('admin'), async (req, res) => {
+  const request = await getAccessRequestById(req.params.id);
+  if (!request) {
+    return res.status(404).json({ error: 'Request not found' });
+  }
+  if (request.status !== 'pending') {
+    return res.status(409).json({ error: 'Request already processed' });
+  }
+  await decideAccessRequest({ id: request.id, deciderId: req.user.id, decision: 'denied' });
+  await recordAuditLog({
+    actorId: req.user.id,
+    action: 'admin.access_request.deny',
+    targetId: null,
+    metadata: { username: request.username, requestId: request.id }
+  });
+  return res.json({ ok: true });
 });
 
 module.exports = router;

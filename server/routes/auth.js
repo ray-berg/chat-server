@@ -1,11 +1,14 @@
 const express = require('express');
 const { z } = require('zod');
+const config = require('../config');
 const {
   createUser,
   getUserByUsername,
   getUserById,
   updateUserPresence,
-  ensureUserInLobby
+  ensureUserInLobby,
+  createAccessRequest,
+  hasPendingAccessRequest
 } = require('../db');
 const {
   hashPassword,
@@ -37,6 +40,11 @@ const registerSchema = z.object({
 });
 
 router.post('/register', registrationLimiter, async (req, res) => {
+  if (!config.allowRegistration) {
+    return res
+      .status(403)
+      .json({ error: 'Self-registration is disabled. Request access from an administrator.' });
+  }
   const parse = registerSchema.safeParse(req.body);
   if (!parse.success) {
     return res.status(400).json({ error: 'Invalid payload', details: parse.error.errors });
@@ -63,6 +71,34 @@ router.post('/register', registrationLimiter, async (req, res) => {
   const token = createToken(user);
   const hydrated = await getUserById(user.id);
   return res.status(201).json({ token, user: sanitizeUser(hydrated) });
+});
+
+const accessRequestSchema = z.object({
+  username: z
+    .string()
+    .min(3)
+    .max(32)
+    .regex(/^[a-zA-Z0-9_\-.]+$/),
+  displayName: z.string().min(1).max(64),
+  email: z.string().email().max(255).optional().or(z.literal('')),
+  note: z.string().max(500).optional()
+});
+
+// Public, rate-limited: outsiders ask an admin for an account (no account is
+// created here; an admin approves the request later).
+router.post('/request-access', registrationLimiter, async (req, res) => {
+  const parse = accessRequestSchema.safeParse(req.body);
+  if (!parse.success) {
+    return res.status(400).json({ error: 'Invalid payload', details: parse.error.errors });
+  }
+  const { username, displayName, email, note } = parse.data;
+  const existing = await getUserByUsername(username);
+  if (existing || (await hasPendingAccessRequest(username))) {
+    // Don't reveal whether the username exists; respond the same either way.
+    return res.status(202).json({ ok: true });
+  }
+  await createAccessRequest({ username, displayName, email: email || null, note: note || null });
+  return res.status(201).json({ ok: true });
 });
 
 const loginSchema = z.object({

@@ -1216,9 +1216,132 @@ async function getReadReceipts(conversationId) {
   }));
 }
 
+async function createAccessRequest({ username, displayName, email = null, note = null }) {
+  const conn = getPool();
+  const id = randomUUID();
+  await conn.execute(
+    `INSERT INTO access_requests (id, username, display_name, email, note, status, created_at)
+     VALUES (?, ?, ?, ?, ?, 'pending', ?)`,
+    [id, username, displayName, email, note, new Date()]
+  );
+  return id;
+}
+
+async function hasPendingAccessRequest(username) {
+  const conn = getPool();
+  const [rows] = await conn.execute(
+    `SELECT 1 FROM access_requests WHERE username = ? AND status = 'pending' LIMIT 1`,
+    [username]
+  );
+  return rows.length > 0;
+}
+
+function mapAccessRequest(row) {
+  return {
+    id: row.id,
+    username: row.username,
+    displayName: row.display_name,
+    email: row.email || null,
+    note: row.note || null,
+    status: row.status,
+    createdAt: iso(row.created_at),
+    decidedAt: iso(row.decided_at),
+    decidedBy: row.decided_by || null,
+    createdUserId: row.created_user_id || null
+  };
+}
+
+async function listAccessRequests({ status } = {}) {
+  const conn = getPool();
+  let sql = 'SELECT * FROM access_requests';
+  const params = [];
+  if (status) {
+    sql += ' WHERE status = ?';
+    params.push(status);
+  }
+  sql += ' ORDER BY created_at DESC LIMIT 200';
+  const [rows] = await conn.execute(sql, params);
+  return rows.map(mapAccessRequest);
+}
+
+async function getAccessRequestById(id) {
+  const conn = getPool();
+  const [rows] = await conn.execute('SELECT * FROM access_requests WHERE id = ?', [id]);
+  return rows[0] ? mapAccessRequest(rows[0]) : null;
+}
+
+async function decideAccessRequest({ id, deciderId, decision, createdUserId = null }) {
+  const conn = getPool();
+  await conn.execute(
+    `UPDATE access_requests
+     SET status = ?, decided_at = ?, decided_by = ?, created_user_id = ?
+     WHERE id = ?`,
+    [decision, new Date(), deciderId, createdUserId, id]
+  );
+  return getAccessRequestById(id);
+}
+
+async function createApiKey({ userId, label, keyHash, keyPrefix }) {
+  const conn = getPool();
+  const id = randomUUID();
+  const now = new Date();
+  await conn.execute(
+    `INSERT INTO api_keys (id, user_id, label, key_prefix, key_hash, created_at)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [id, userId, label || null, keyPrefix, keyHash, now]
+  );
+  return { id, label: label || null, keyPrefix, createdAt: iso(now) };
+}
+
+async function listApiKeys(userId) {
+  const conn = getPool();
+  const [rows] = await conn.execute(
+    `SELECT id, label, key_prefix AS keyPrefix, created_at AS createdAt, last_used_at AS lastUsedAt
+     FROM api_keys WHERE user_id = ? ORDER BY created_at DESC`,
+    [userId]
+  );
+  return rows.map((row) => ({
+    id: row.id,
+    label: row.label || null,
+    keyPrefix: row.keyPrefix,
+    createdAt: iso(row.createdAt),
+    lastUsedAt: iso(row.lastUsedAt)
+  }));
+}
+
+async function getActiveApiKeyByHash(keyHash) {
+  const conn = getPool();
+  const [rows] = await conn.execute(
+    'SELECT id, user_id AS userId FROM api_keys WHERE key_hash = ? LIMIT 1',
+    [keyHash]
+  );
+  return rows[0] || null;
+}
+
+async function deleteApiKey(id, userId) {
+  const conn = getPool();
+  const [result] = await conn.execute('DELETE FROM api_keys WHERE id = ? AND user_id = ?', [id, userId]);
+  return result.affectedRows > 0;
+}
+
+async function touchApiKey(id) {
+  const conn = getPool();
+  await conn.execute('UPDATE api_keys SET last_used_at = ? WHERE id = ?', [new Date(), id]);
+}
+
 module.exports = {
   initDb,
   createUser,
+  createApiKey,
+  listApiKeys,
+  getActiveApiKeyByHash,
+  deleteApiKey,
+  touchApiKey,
+  createAccessRequest,
+  hasPendingAccessRequest,
+  listAccessRequests,
+  getAccessRequestById,
+  decideAccessRequest,
   getUserById,
   getUserWithPassword,
   getUserByUsername,

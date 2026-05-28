@@ -51,6 +51,9 @@ const config = {
   jwtExpiresIn: process.env.JWT_EXPIRES_IN || '2h',
   adminUser: process.env.ADMIN_USER || 'admin',
   adminPassword: process.env.ADMIN_PASSWORD || 'ChangeMe!23',
+  // Private server: self-service registration is disabled by default. Outsiders
+  // use the access-request flow instead. Set ALLOW_REGISTRATION=true to re-enable.
+  allowRegistration: process.env.ALLOW_REGISTRATION === 'true',
   auth: {
     // Password complexity requirements
     passwordMinLength: 8,
