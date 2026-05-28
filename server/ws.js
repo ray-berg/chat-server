@@ -8,8 +8,13 @@ const {
   createMessage,
   getConversationMembers,
   isMember,
-  updateUserPresence
+  updateUserPresence,
+  getActiveApiKeyByHash,
+  touchApiKey
 } = require('./db');
+const { hashApiKey } = require('./auth');
+
+const API_KEY_PREFIX = 'csk_';
 
 // Server instance ID - changes on each restart
 const SERVER_INSTANCE_ID = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -63,8 +68,21 @@ async function authenticateFromRequest(req) {
     if (!token) {
       return { error: 'Missing token' };
     }
-    const payload = jwt.verify(token, config.jwtSecret);
-    const user = await getUserById(payload.sub);
+    let user;
+    if (token.startsWith(API_KEY_PREFIX)) {
+      // API key path: same csk_ keys that authenticate REST also work here.
+      const record = await getActiveApiKeyByHash(hashApiKey(token));
+      if (!record) {
+        return { error: 'Invalid API key' };
+      }
+      user = await getUserById(record.userId);
+      if (user) {
+        touchApiKey(record.id).catch(() => {});
+      }
+    } else {
+      const payload = jwt.verify(token, config.jwtSecret);
+      user = await getUserById(payload.sub);
+    }
     if (!user || user.status !== 'active') {
       return { error: 'Account not available' };
     }
