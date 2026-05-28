@@ -285,6 +285,13 @@ export function ChatProvider({ children }) {
     [refreshChannels],
   );
 
+  const fetchAccessRequests = React.useCallback(
+    (status = 'pending') => api.accessRequests(status).then((r) => r.requests || []),
+    [],
+  );
+  const approveAccessRequest = React.useCallback((id, password, role) => api.approveAccessRequest(id, password, role), []);
+  const denyAccessRequest = React.useCallback((id) => api.denyAccessRequest(id), []);
+
   const searchUsers = React.useCallback(
     async (q) => {
       const res = await api.users(q).catch(() => ({ users: [] }));
@@ -456,6 +463,9 @@ export function ChatProvider({ children }) {
     fetchRoomRequests,
     respondRoomRequest,
     banFromRoom,
+    fetchAccessRequests,
+    approveAccessRequest,
+    denyAccessRequest,
     refreshChannels,
     doLogin,
     logout,

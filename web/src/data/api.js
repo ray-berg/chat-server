@@ -96,6 +96,12 @@ export const api = {
   myProfile: () => apiGet('/api/users/me/profile'),
   changePassword: (currentPassword, newPassword) =>
     apiPost('/api/users/me/password', { currentPassword, newPassword }),
+  requestAccess: (payload) => apiPost('/api/auth/request-access', payload),
+  accessRequests: (status = 'pending') =>
+    apiGet(`/api/admin/access-requests${status ? `?status=${status}` : ''}`),
+  approveAccessRequest: (id, password, role = 'user') =>
+    apiPost(`/api/admin/access-requests/${id}/approve`, { password, role }),
+  denyAccessRequest: (id) => apiPost(`/api/admin/access-requests/${id}/deny`),
   uploadImage: async (scope, file) => {
     const fd = new FormData();
     fd.append('image', file);

@@ -11,6 +11,7 @@ import { HuddleFloater } from './modals/HuddleFloater.jsx';
 import { ComposeDm } from './modals/ComposeDm.jsx';
 import { SettingsPanel } from './modals/SettingsPanel.jsx';
 import { CreateRoom } from './modals/CreateRoom.jsx';
+import { AccessRequests } from './modals/AccessRequests.jsx';
 import { Avatar, Button } from './components/atoms.jsx';
 import { Icon } from './icons.jsx';
 
@@ -96,6 +97,9 @@ function Shell() {
     fetchRoomRequests,
     respondRoomRequest,
     banFromRoom,
+    fetchAccessRequests,
+    approveAccessRequest,
+    denyAccessRequest,
     logout,
   } = chat;
 
@@ -113,7 +117,9 @@ function Shell() {
   const [composeOpen, setComposeOpen] = React.useState(false);
   const [settingsOpen, setSettingsOpen] = React.useState(false);
   const [createRoomOpen, setCreateRoomOpen] = React.useState(false);
-  const isMod = currentUser?.role === 'admin' || currentUser?.role === 'moderator';
+  const [accessReqOpen, setAccessReqOpen] = React.useState(false);
+  const isAdmin = currentUser?.role === 'admin';
+  const isMod = isAdmin || currentUser?.role === 'moderator';
 
   // Auto-select a channel once data is loaded.
   React.useEffect(() => {
@@ -204,8 +210,9 @@ function Shell() {
         onSetAccent={setAccent}
         onOpenSettings={() => setSettingsOpen(true)}
         onCreateRoom={isMod ? () => setCreateRoomOpen(true) : undefined}
+        onOpenAccessRequests={isAdmin ? () => setAccessReqOpen(true) : undefined}
         currentAccent={currentUser?.accentColor}
-        isAdmin={currentUser?.role === 'admin'}
+        isAdmin={isAdmin}
         approvalsCount={(approvals.incoming || []).filter((a) => a.status === 'pending').length}
         onQuick={(q) => setRailMode((m) => (m === q ? null : q))}
       />
@@ -294,6 +301,13 @@ function Shell() {
           if (id) selectChannel(id);
           return id;
         }}
+      />
+      <AccessRequests
+        open={accessReqOpen}
+        onClose={() => setAccessReqOpen(false)}
+        fetchAccessRequests={fetchAccessRequests}
+        onApprove={approveAccessRequest}
+        onDeny={denyAccessRequest}
       />
     </div>
   );
