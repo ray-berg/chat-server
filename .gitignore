@@ -12,3 +12,6 @@ server/local-debug.pid
 *.pid
 .env.prod
 .env.*
+
+# local Claude Code config (not shared)
+.claude/

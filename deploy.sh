@@ -83,6 +83,7 @@ run install -d -m 755 "$TARGET_DIR"
 RSYNC_FLAGS=(-rlptD --delete)
 RSYNC_EXCLUDES=(
   --exclude '.git/'
+  --exclude '.claude/'
   --exclude 'node_modules/'
   --exclude 'server/.env'
   --exclude 'server/certs/'
