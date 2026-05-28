@@ -16,8 +16,10 @@ const {
   resetUserPassword,
   createApiKey,
   listApiKeys,
-  deleteApiKey
+  deleteApiKey,
+  setActivityStatus
 } = require('../db');
+const events = require('../events');
 
 const router = express.Router();
 router.use(authenticateRequest);
@@ -107,6 +109,22 @@ router.post('/me/password', async (req, res) => {
   const newHash = await hashPassword(newPassword);
   await resetUserPassword(req.user.id, newHash);
   return res.json({ ok: true });
+});
+
+// ---- Activity status (agent orchestration) ----
+// Self-only. Sits alongside presence; agents/their harness report it.
+const activitySchema = z.object({
+  status: z.enum(['ready', 'working', 'awaiting_review', 'awaiting_assignment', 'idle'])
+});
+
+router.post('/me/activity', async (req, res) => {
+  const parse = activitySchema.safeParse(req.body || {});
+  if (!parse.success) {
+    return res.status(400).json({ error: 'Invalid payload', details: parse.error.errors });
+  }
+  const activityStatus = await setActivityStatus(req.user.id, parse.data.status);
+  events.emit('activity:changed', { userId: req.user.id, activityStatus });
+  return res.json({ activityStatus });
 });
 
 // ---- API keys ----

@@ -16,6 +16,7 @@ const adminRoutes = require('./routes/admin');
 const approvalRoutes = require('./routes/approvals');
 const roomRoutes = require('./routes/rooms');
 const uploadRoutes = require('./routes/uploads');
+const agentRoutes = require('./routes/agents');
 const { setupWebsocket } = require('./ws');
 
 function logStartupSummary() {
@@ -113,6 +114,7 @@ async function start() {
   app.use('/api/conversations', conversationRoutes);
   app.use('/api/rooms', roomRoutes);
   app.use('/api/users', userRoutes);
+  app.use('/api/agents', agentRoutes);
   app.use('/api/admin', adminRoutes);
   app.use('/api/approvals', approvalRoutes);
   app.use('/api/uploads', uploadRoutes);
