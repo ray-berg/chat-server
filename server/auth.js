@@ -253,6 +253,7 @@ function sanitizeUser(user) {
     role: user.role,
     status: user.status,
     manager: Boolean(user.manager),
+    bot: Boolean(user.bot),
     avatarUrl: user.avatarUrl,
     bio: user.bio,
     birthday: user.birthday,
