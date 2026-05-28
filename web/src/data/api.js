@@ -108,6 +108,10 @@ export const api = {
   approveAccessRequest: (id, password, role = 'user') =>
     apiPost(`/api/admin/access-requests/${id}/approve`, { password, role }),
   denyAccessRequest: (id) => apiPost(`/api/admin/access-requests/${id}/deny`),
+  listMyApiKeys: () => apiGet('/api/users/me/api-keys'),
+  createMyApiKey: (label) => apiPost('/api/users/me/api-keys', { label }),
+  rotateMyApiKey: (id, label) => apiPost(`/api/users/me/api-keys/${id}/rotate`, { label }),
+  revokeMyApiKey: (id) => apiDelete(`/api/users/me/api-keys/${id}`),
   adminStats: () => apiGet('/api/admin/stats'),
   adminUsers: (q = '') => apiGet(`/api/admin/users?q=${encodeURIComponent(q)}`),
   adminGetUser: (id) => apiGet(`/api/admin/users/${id}`),

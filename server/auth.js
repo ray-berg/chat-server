@@ -1,7 +1,19 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const config = require('./config');
-const { getUserById } = require('./db');
+const { getUserById, getActiveApiKeyByHash, touchApiKey } = require('./db');
+
+const API_KEY_PREFIX = 'csk_';
+
+// High-entropy random API key; only the sha256 hash is stored server-side.
+function generateApiKey() {
+  return API_KEY_PREFIX + crypto.randomBytes(32).toString('base64url');
+}
+
+function hashApiKey(key) {
+  return crypto.createHash('sha256').update(key).digest('hex');
+}
 
 // Token blacklist for logout (in-memory, consider Redis for production clusters)
 const tokenBlacklist = new Map();
@@ -176,6 +188,29 @@ async function authenticateRequest(req, res, next) {
   }
   const token = header.slice(7);
 
+  // API key path: bearer values prefixed with csk_ are long-lived admin keys.
+  if (token.startsWith(API_KEY_PREFIX)) {
+    try {
+      const record = await getActiveApiKeyByHash(hashApiKey(token));
+      if (!record) {
+        return res.status(401).json({ error: 'Invalid API key' });
+      }
+      const keyUser = await getUserById(record.userId);
+      if (!keyUser) {
+        return res.status(401).json({ error: 'Invalid API key' });
+      }
+      if (keyUser.status !== 'active') {
+        return res.status(403).json({ error: 'Account is disabled' });
+      }
+      req.user = keyUser;
+      req.apiKeyId = record.id;
+      touchApiKey(record.id).catch(() => {});
+      return next();
+    } catch (error) {
+      return res.status(401).json({ error: 'Invalid API key' });
+    }
+  }
+
   // Check if token has been blacklisted (logged out)
   if (isTokenBlacklisted(token)) {
     return res.status(401).json({ error: 'Token has been revoked' });
@@ -247,5 +282,8 @@ module.exports = {
   clearFailedAttempts,
   // Token blacklist
   blacklistToken,
-  isTokenBlacklisted
+  isTokenBlacklisted,
+  // API keys
+  generateApiKey,
+  hashApiKey
 };

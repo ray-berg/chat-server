@@ -2,6 +2,7 @@ import React from 'react';
 import { Icon } from '../icons.jsx';
 import { Avatar, Button, Eyebrow } from '../components/atoms.jsx';
 import { api } from '../data/api.js';
+import { relTime } from '../lib/format.js';
 
 const ACCENTS = [
   { name: 'Blue', value: '#3b82f6' },
@@ -30,6 +31,121 @@ function Note({ tone, children }) {
   const bg = tone === 'error' ? 'var(--tone-urgent-soft)' : 'var(--tone-ok-soft)';
   const bd = tone === 'error' ? 'rgba(239,68,68,0.4)' : 'rgba(34,197,94,0.4)';
   return <div style={{ fontSize: 12, color, background: bg, border: `1px solid ${bd}`, borderRadius: 6, padding: '6px 10px' }}>{children}</div>;
+}
+
+function ApiKeysSection() {
+  const [keys, setKeys] = React.useState([]);
+  const [label, setLabel] = React.useState('');
+  const [created, setCreated] = React.useState(null);
+  const [busy, setBusy] = React.useState(false);
+  const [err, setErr] = React.useState(null);
+
+  const reload = React.useCallback(() => {
+    api.listMyApiKeys().then((r) => setKeys(r.keys || [])).catch(() => {});
+  }, []);
+  React.useEffect(() => {
+    reload();
+  }, [reload]);
+
+  async function create() {
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await api.createMyApiKey(label.trim() || undefined);
+      setCreated(r.apiKey);
+      setLabel('');
+      reload();
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function rotate(id) {
+    if (!window.confirm('Rotate this key? The old key stops working immediately.')) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await api.rotateMyApiKey(id);
+      setCreated(r.apiKey);
+      reload();
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function revoke(id) {
+    if (!window.confirm('Revoke this key?')) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.revokeMyApiKey(id);
+      reload();
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <Eyebrow>API keys</Eyebrow>
+      <div style={{ fontSize: 12, color: 'var(--fg-5)' }}>
+        Keys authenticate as you with full admin access. Send as
+        <code style={{ fontFamily: 'var(--font-mono)', color: 'var(--brass-300)', margin: '0 4px' }}>Authorization: Bearer csk_…</code>. Treat them like passwords.
+      </div>
+
+      {created && (
+        <div style={{ background: 'var(--gray-950)', border: '1px solid color-mix(in oklab, var(--ok-500) 40%, transparent)', borderRadius: 8, padding: 12 }}>
+          <div style={{ fontSize: 11, color: 'var(--ok-300)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, marginBottom: 6 }}>
+            New key — copy it now, it won&apos;t be shown again
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <code style={{ flex: 1, fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--fg-1)', wordBreak: 'break-all' }}>{created.key}</code>
+            <Button variant="flat" size="sm" onClick={() => navigator.clipboard?.writeText(created.key)}>
+              Copy
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setCreated(null)}>
+              Done
+            </Button>
+          </div>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: 8 }}>
+        <input style={{ ...field, flex: 1 }} value={label} maxLength={80} onChange={(e) => setLabel(e.target.value)} placeholder="Label (e.g. automation)" />
+        <Button variant="primary" size="md" icon="plus" onClick={create} disabled={busy}>
+          Create key
+        </Button>
+      </div>
+
+      {err && <Note tone="error">{err}</Note>}
+
+      <div style={{ display: 'flex', flexDirection: 'column' }}>
+        {keys.length === 0 && <div style={{ fontSize: 12, color: 'var(--fg-5)' }}>No keys yet.</div>}
+        {keys.map((k) => (
+          <div key={k.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderBottom: '1px solid var(--border-subtle)' }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13, color: 'var(--fg-1)' }}>
+                {k.label || 'Untitled'} <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--fg-5)', fontSize: 11 }}>{k.keyPrefix}…</span>
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--fg-5)' }}>
+                {k.lastUsedAt ? `last used ${relTime(k.lastUsedAt)}` : 'never used'}
+              </div>
+            </div>
+            <Button variant="flat" size="sm" onClick={() => rotate(k.id)} disabled={busy}>
+              Rotate
+            </Button>
+            <Button variant="danger" size="sm" onClick={() => revoke(k.id)} disabled={busy}>
+              Revoke
+            </Button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export function SettingsPanel({ open, onClose, user, updateProfile, uploadImage, changePassword, setAccent }) {
@@ -218,6 +334,13 @@ export function SettingsPanel({ open, onClose, user, updateProfile, uploadImage,
                 </Button>
               </div>
             </form>
+
+            {user?.role === 'admin' && (
+              <>
+                <div style={{ height: 1, background: 'var(--border-subtle)' }} />
+                <ApiKeysSection />
+              </>
+            )}
           </div>
         )}
       </div>
