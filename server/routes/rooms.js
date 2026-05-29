@@ -4,6 +4,7 @@ const {
   listRoomsForUser,
   createRoom,
   joinRoom,
+  leaveRoom,
   activateRoom,
   banUserFromRoom,
   ensureLobbyRoom,
@@ -88,6 +89,25 @@ router.post('/:roomId/join', async (req, res) => {
       return res.status(403).json({ error: 'Room is private. Request access from a moderator.' });
     }
     return res.status(400).json({ error: error.message || 'Unable to join room' });
+  }
+});
+
+// Self-leave: remove the caller from a room. Because member-scoped WS fan-out
+// (message:created/typing/thinking/read receipts) is evaluated live by
+// getConversationMembers, dropping the row immediately stops those wake frames
+// for this room. Room + history persist; other members untouched. Idempotent.
+router.post('/:roomId/leave', async (req, res) => {
+  try {
+    const left = await leaveRoom(req.params.roomId, req.user.id);
+    if (left) {
+      const room = await getConversationById(req.params.roomId);
+      if (room) {
+        events.emit('conversation:updated', { conversation: room, initiatorId: req.user.id });
+      }
+    }
+    return res.json({ ok: true, left });
+  } catch (error) {
+    return res.status(400).json({ error: error.message || 'Unable to leave room' });
   }
 });
 

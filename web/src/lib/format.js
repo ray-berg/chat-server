@@ -56,6 +56,7 @@ export function userFromMessage(m) {
     id: m.userId,
     displayName: m.displayName,
     role: m.role,
+    bot: m.bot,
     avatarUrl: m.avatarUrl,
     profilePhotoUrl: m.profilePhotoUrl,
   };

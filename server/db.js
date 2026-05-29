@@ -605,6 +605,18 @@ async function banUserFromRoom({ roomId, targetUserId, bannedBy, reason }) {
   return true;
 }
 
+// Remove the caller from a room (self-leave). Idempotent: returns whether a
+// membership row was actually deleted. The conversation + its messages persist
+// and other members are untouched.
+async function leaveRoom(roomId, userId) {
+  const conn = getPool();
+  const [res] = await conn.execute(
+    'DELETE FROM conversation_members WHERE conversation_id = ? AND user_id = ?',
+    [roomId, userId]
+  );
+  return (res.affectedRows || 0) > 0;
+}
+
 async function updateRoomVisibility(roomId, isPublic) {
   const conn = getPool();
   const [result] = await conn.execute(
@@ -1843,6 +1855,7 @@ module.exports = {
   createOrGetDirectConversation,
   createRoom,
   joinRoom,
+  leaveRoom,
   activateRoom,
   banUserFromRoom,
   isUserBannedFromRoom,

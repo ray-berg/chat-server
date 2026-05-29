@@ -105,7 +105,16 @@ export function ChatProvider({ children }) {
       list.forEach((u) => {
         if (!u || !u.id) return;
         const mapped = mapUser(u);
-        next[u.id] = { ...next[u.id], ...mapped };
+        const prev = next[u.id];
+        if (prev) {
+          // A sparse update (e.g. a message author, which carries no presence/
+          // activity) must NOT clobber known live state with mapUser's defaults --
+          // otherwise a bot that posts flips to offline/non-bot and shows a gray dot.
+          if (u.presenceStatus == null && u.presence == null) mapped.presence = prev.presence;
+          if (u.activityStatus == null) mapped.activityStatus = prev.activityStatus;
+          if (u.bot == null) mapped.bot = prev.bot;
+        }
+        next[u.id] = { ...prev, ...mapped };
       });
       return next;
     });
