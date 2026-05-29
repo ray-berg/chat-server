@@ -70,6 +70,45 @@ function DisconnectBanner({ connection }) {
   );
 }
 
+function ToastHost({ toasts, onDismiss }) {
+  if (!toasts || !toasts.length) return null;
+  return (
+    <div
+      style={{ position: 'fixed', right: 18, bottom: 18, zIndex: 200, display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'flex-end', pointerEvents: 'none' }}
+    >
+      {toasts.map((t) => (
+        <div
+          key={t.id}
+          className="chat-toast-in"
+          onClick={() => onDismiss(t.id)}
+          title="Dismiss"
+          style={{
+            pointerEvents: 'auto',
+            cursor: 'pointer',
+            maxWidth: 320,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '8px 12px',
+            background: 'var(--bg-surface-2)',
+            border: '1px solid var(--border-default)',
+            borderLeft: `2px solid ${t.kind === 'signin' ? 'var(--ok-500)' : 'var(--accent-color, var(--blue-500))'}`,
+            borderRadius: 8,
+            boxShadow: 'var(--shadow-md)',
+            fontSize: 13,
+            color: 'var(--fg-1)',
+          }}
+        >
+          {t.kind === 'signin' && (
+            <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--ok-500)', flexShrink: 0 }} />
+          )}
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.text}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function Shell() {
   const chat = useChat();
   const {
@@ -102,6 +141,8 @@ function Shell() {
     fetchAccessRequests,
     approveAccessRequest,
     denyAccessRequest,
+    toasts,
+    dismissToast,
     logout,
   } = chat;
 
@@ -322,6 +363,7 @@ function Shell() {
       />
       <AdminUsers open={adminUsersOpen} onClose={() => setAdminUsersOpen(false)} currentUserId={currentUser?.id} />
       <GlobalSettings open={globalSettingsOpen} onClose={() => setGlobalSettingsOpen(false)} />
+      <ToastHost toasts={toasts} onDismiss={dismissToast} />
     </div>
   );
 }

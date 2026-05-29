@@ -57,7 +57,7 @@ function MemberRow({ user, expanded, onBan }) {
   if (!user) return null;
   return (
     <div
-      style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '5px 6px', borderRadius: 5, cursor: 'pointer' }}
+      style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '5px 6px', borderRadius: 5, cursor: 'pointer', transition: 'background 140ms ease' }}
       onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-surface-2)')}
       onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
     >
@@ -341,7 +341,7 @@ function ActivityRow({ user }) {
   const act = user.activityStatus ? ACTIVITY_META[user.activityStatus] : null;
   return (
     <div
-      style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '6px 4px', borderRadius: 5 }}
+      style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '6px 4px', borderRadius: 5, transition: 'background 140ms ease' }}
       onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-surface-2)')}
       onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
     >
@@ -369,13 +369,11 @@ function ActivityRow({ user }) {
 function ActivityPane({ usersById, currentUserId }) {
   const all = Object.values(usersById).filter(Boolean);
   const rank = (u) => (u.activityStatus in ACTIVITY_ORDER ? ACTIVITY_ORDER[u.activityStatus] : 5);
+  const online = (u) => (u.presence === 'online' ? 0 : 1);
+  // Online first, always; then (for agents) by what they're doing, then name.
   const byActivity = (a, b) =>
-    rank(a) - rank(b) ||
-    (a.presence === 'online' ? 0 : 1) - (b.presence === 'online' ? 0 : 1) ||
-    (a.name || '').localeCompare(b.name || '');
-  const byPresence = (a, b) =>
-    (a.presence === 'online' ? 0 : 1) - (b.presence === 'online' ? 0 : 1) ||
-    (a.name || '').localeCompare(b.name || '');
+    online(a) - online(b) || rank(a) - rank(b) || (a.name || '').localeCompare(b.name || '');
+  const byPresence = (a, b) => online(a) - online(b) || (a.name || '').localeCompare(b.name || '');
   const bots = all.filter((u) => u.bot).sort(byActivity);
   const people = all.filter((u) => !u.bot && u.id !== currentUserId).sort(byPresence);
   const activeBots = bots.filter((u) => u.activityStatus && u.activityStatus !== 'idle').length;

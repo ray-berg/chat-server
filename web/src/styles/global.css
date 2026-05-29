@@ -93,20 +93,51 @@ textarea {
 @keyframes chat-msg-in {
   from {
     opacity: 0;
-    transform: translateY(10px);
+    transform: translateY(8px) scale(0.985);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* A soft accent bar that fades out, so a new message reads as "arriving" rather
+   than snapping in. box-shadow (not background) so it never fights hover state. */
+@keyframes chat-msg-glow {
+  0% {
+    box-shadow: inset 2px 0 0 var(--accent-color, var(--blue-500));
+    background: color-mix(in oklab, var(--accent-color, var(--blue-500)) 7%, transparent);
+  }
+  100% {
+    box-shadow: inset 2px 0 0 transparent;
+    background: transparent;
   }
 }
 
 .chat-msg-in {
-  animation: chat-msg-in 240ms cubic-bezier(0.22, 1, 0.36, 1);
+  animation:
+    chat-msg-in 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    chat-msg-glow 1.8s ease-out;
+}
+
+@keyframes chat-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.chat-toast-in {
+  animation: chat-toast-in 220ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .chat-msg-in {
+  .chat-msg-in,
+  .chat-toast-in {
     animation: none;
   }
 }

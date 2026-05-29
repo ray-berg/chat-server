@@ -75,17 +75,29 @@ export function ChatProvider({ children }) {
   const [thinkingByChannel, setThinkingByChannel] = React.useState({});
   const [approvals, setApprovals] = React.useState({ incoming: [], outgoing: [] });
   const [mentionsByChannel, setMentionsByChannel] = React.useState({});
+  const [toasts, setToasts] = React.useState([]);
   const [connection, setConnection] = React.useState('idle');
 
   const socketRef = React.useRef(null);
   const channelsRef = React.useRef([]);
   const activeRef = React.useRef(null);
   const meRef = React.useRef(null);
+  const usersRef = React.useRef({});
   const typingTimers = React.useRef({});
   const refreshTimer = React.useRef(null);
   channelsRef.current = channels;
   activeRef.current = activeChannelId;
   meRef.current = currentUser;
+  usersRef.current = usersById;
+
+  const dismissToast = React.useCallback((id) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+  const pushToast = React.useCallback((text, opts = {}) => {
+    const id = `t-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    setToasts((prev) => [...prev.slice(-4), { id, text, kind: opts.kind || 'info' }]);
+    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), opts.ttl || 4500);
+  }, []);
 
   const mergeUsers = React.useCallback((list) => {
     setUsersById((prev) => {
@@ -396,6 +408,16 @@ export function ChatProvider({ children }) {
           break;
         case 'presence:updated':
           if (msg.user) {
+            // Toast a genuine sign-in (offline -> online) for others; skip self,
+            // skip idle->online (return from idle), skip first sighting (load).
+            const prior = usersRef.current[msg.user.id]?.presence;
+            if (
+              msg.user.id !== meRef.current?.id &&
+              msg.user.presenceStatus === 'online' &&
+              prior === 'offline'
+            ) {
+              pushToast(`${msg.user.displayName || msg.user.username} signed in`, { kind: 'signin' });
+            }
             mergeUsers([msg.user]);
             // Keep our own footer status in sync with server-driven changes.
             if (msg.user.id === meRef.current?.id) {
@@ -446,7 +468,7 @@ export function ChatProvider({ children }) {
           break;
       }
     },
-    [appendMessage, mergeUsers, refreshChannels, refreshApprovals, refreshMentions, noteTyping],
+    [appendMessage, mergeUsers, refreshChannels, refreshApprovals, refreshMentions, noteTyping, pushToast],
   );
 
   // Bootstrap once we have a token.
@@ -568,6 +590,9 @@ export function ChatProvider({ children }) {
     typing: Object.values(typingByChannel[activeChannelId] || {}),
     thinking: Object.entries(thinkingByChannel[activeChannelId] || {}).map(([id, name]) => ({ id, name })),
     approvals,
+    toasts,
+    dismissToast,
+    pushToast,
     selectChannel,
     sendMessage,
     sendTyping,
