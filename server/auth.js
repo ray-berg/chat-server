@@ -269,6 +269,7 @@ function sanitizeUser(user) {
     profileTheme: user.profileTheme,
     accentColor: user.accentColor,
     presenceStatus: user.presenceStatus,
+    activityStatus: user.activityStatus || null,
     lastSeenAt: user.lastSeenAt,
     profilePhotoUrl: user.profilePhotoUrl,
     lastRoomId: user.lastRoomId || null,

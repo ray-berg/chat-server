@@ -39,6 +39,7 @@ export function mapUser(u) {
     initials: initials(name),
     role: u.role || 'user',
     presence: u.presenceStatus || u.presence || 'offline',
+    activityStatus: u.activityStatus || null,
     bot: Boolean(u.bot),
     model: u.bot ? u.botModel || u.model || null : null,
     manager: Boolean(u.manager),

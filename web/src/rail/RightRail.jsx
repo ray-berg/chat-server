@@ -3,7 +3,7 @@
 // files/pinned/activity show empty states (no backend yet) but keep the design.
 import React from 'react';
 import { Icon } from '../icons.jsx';
-import { Avatar, Eyebrow, Pill, Button, IconButton, RoleBadge, BotPill } from '../components/atoms.jsx';
+import { Avatar, Eyebrow, Pill, Button, IconButton, RoleBadge, BotPill, PresenceDot } from '../components/atoms.jsx';
 import { relTime } from '../lib/format.js';
 import { MessageRun } from '../main/messages.jsx';
 
@@ -326,14 +326,79 @@ function EmptyPane({ icon, lines }) {
   );
 }
 
-function ActivityFilters() {
+// Bot activity_status (orchestration): ready|working|awaiting_review|awaiting_assignment|idle.
+// Surfaces once the backend exposes activityStatus on the user shape (item 1).
+const ACTIVITY_META = {
+  working: { label: 'Working', tone: 'info' },
+  awaiting_review: { label: 'Awaiting review', tone: 'warn' },
+  awaiting_assignment: { label: 'Awaiting work', tone: 'accent' },
+  ready: { label: 'Ready', tone: 'ok' },
+  idle: { label: 'Idle', tone: 'neutral' },
+};
+const ACTIVITY_ORDER = { working: 0, awaiting_review: 1, ready: 2, awaiting_assignment: 3, idle: 4 };
+
+function ActivityRow({ user }) {
+  const act = user.activityStatus ? ACTIVITY_META[user.activityStatus] : null;
   return (
-    <div style={{ padding: '8px 14px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-      <Pill tone="info" size="xs">All</Pill>
-      <Pill tone="neutral" size="xs">Mentions</Pill>
-      <Pill tone="neutral" size="xs">Threads</Pill>
-      <Pill tone="neutral" size="xs">Reactions</Pill>
-      <Pill tone="neutral" size="xs">Approvals</Pill>
+    <div
+      style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '6px 4px', borderRadius: 5 }}
+      onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--bg-surface-2)')}
+      onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+    >
+      <Avatar user={user} size={28} presence={false} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+          <span style={{ fontSize: 13, color: 'var(--fg-1)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{user.name}</span>
+          {user.bot && <BotPill />}
+          {user.role !== 'user' && <RoleBadge role={user.role} />}
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--fg-5)', marginTop: 1 }}>
+          <PresenceDot status={user.presence || 'offline'} size={7} />
+          <span style={{ textTransform: 'capitalize' }}>{user.presence || 'offline'}</span>
+        </div>
+      </div>
+      {act && (
+        <Pill tone={act.tone} size="xs">
+          {act.label}
+        </Pill>
+      )}
+    </div>
+  );
+}
+
+function ActivityPane({ usersById, currentUserId }) {
+  const all = Object.values(usersById).filter(Boolean);
+  const rank = (u) => (u.activityStatus in ACTIVITY_ORDER ? ACTIVITY_ORDER[u.activityStatus] : 5);
+  const byActivity = (a, b) =>
+    rank(a) - rank(b) ||
+    (a.presence === 'online' ? 0 : 1) - (b.presence === 'online' ? 0 : 1) ||
+    (a.name || '').localeCompare(b.name || '');
+  const byPresence = (a, b) =>
+    (a.presence === 'online' ? 0 : 1) - (b.presence === 'online' ? 0 : 1) ||
+    (a.name || '').localeCompare(b.name || '');
+  const bots = all.filter((u) => u.bot).sort(byActivity);
+  const people = all.filter((u) => !u.bot && u.id !== currentUserId).sort(byPresence);
+  const activeBots = bots.filter((u) => u.activityStatus && u.activityStatus !== 'idle').length;
+  const onlinePeople = people.filter((u) => u.presence === 'online').length;
+  return (
+    <div className="nocos-scrollbar" style={{ flex: 1, overflowY: 'auto', minHeight: 0, padding: '12px 14px' }}>
+      <Eyebrow style={{ marginBottom: 8 }}>
+        Agents · {bots.length}
+        {activeBots ? ` · ${activeBots} active` : ''}
+      </Eyebrow>
+      {bots.length === 0 && <div style={{ fontSize: 12, color: 'var(--fg-5)' }}>No agents in the directory.</div>}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 1, marginBottom: 16 }}>
+        {bots.map((u) => (
+          <ActivityRow key={u.id} user={u} />
+        ))}
+      </div>
+      <Eyebrow style={{ marginBottom: 8 }}>People · {onlinePeople} online</Eyebrow>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+        {people.map((u) => (
+          <ActivityRow key={u.id} user={u} />
+        ))}
+        {people.length === 0 && <div style={{ fontSize: 12, color: 'var(--fg-5)' }}>No one else here.</div>}
+      </div>
     </div>
   );
 }
@@ -436,12 +501,7 @@ export function RightRail({
       {mode === 'approvals' && <ApprovalsPane approvals={approvals} usersById={usersById} onRespond={onRespondApproval} />}
       {mode === 'files' && <EmptyPane icon="file" lines={['No files indexed yet.', 'Uploaded images and attachments will appear here.']} />}
       {mode === 'pinned' && <EmptyPane icon="pin" lines={['No pinned messages.', 'Pin a message from its hover toolbar.']} />}
-      {mode === 'activity' && (
-        <>
-          <ActivityFilters />
-          <EmptyPane icon="activity" lines={['No recent activity.', 'Mentions, replies, and reactions will show up here.']} />
-        </>
-      )}
+      {mode === 'activity' && <ActivityPane usersById={usersById} currentUserId={currentUserId} />}
     </aside>
   );
 }

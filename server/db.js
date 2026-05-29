@@ -47,6 +47,7 @@ function mapUser(row) {
     profileTheme: row.profile_theme || row.profileTheme || 'light',
     accentColor: row.accent_color || row.accentColor || '#2563eb',
     presenceStatus: row.presence_status || row.presenceStatus || 'offline',
+    activityStatus: row.activity_status || row.activityStatus || null,
     lastSeenAt: iso(row.last_seen_at || row.lastSeenAt),
     profilePhotoUrl: row.profile_photo_url || row.profilePhotoUrl || '',
     idleTimeoutMinutes: row.idle_timeout_minutes || row.idleTimeoutMinutes || 5,
@@ -383,6 +384,7 @@ async function listUsers({ query = '', limit = 50 } = {}) {
        avatar_url AS avatarUrl,
        profile_photo_url AS profilePhotoUrl,
        presence_status AS presenceStatus,
+       activity_status AS activityStatus,
        last_seen_at AS lastSeenAt,
        created_at AS createdAt
      FROM users
@@ -402,6 +404,7 @@ async function listUsers({ query = '', limit = 50 } = {}) {
     avatarUrl: row.avatarUrl || DEFAULT_AVATARS[0],
     profilePhotoUrl: row.profilePhotoUrl || '',
     presenceStatus: row.presenceStatus || 'offline',
+    activityStatus: row.activityStatus || null,
     lastSeenAt: iso(row.lastSeenAt),
     createdAt: iso(row.createdAt)
   }));
@@ -960,6 +963,113 @@ async function createMessage({ conversationId, userId, content, format = 'text' 
     avatarUrl: row.avatarUrl || DEFAULT_AVATARS[0],
     profilePhotoUrl: row.profilePhotoUrl || ''
   };
+}
+
+// ---- @mention pings -------------------------------------------------------
+
+function extractMentionUsernames(content) {
+  const out = new Set();
+  const re = /@([a-zA-Z0-9_.-]+)/g;
+  let m;
+  // eslint-disable-next-line no-cond-assign
+  while ((m = re.exec(content || '')) !== null) {
+    out.add(m[1].toLowerCase());
+  }
+  return [...out];
+}
+
+// Resolve @mentions in a freshly-created message and persist one notification
+// row per mentioned user. A ping is delivered for conversations the user can
+// already see: any room they belong to, or any PUBLIC room. Mentions of
+// non-members in private rooms / DMs are skipped (no leakage, no auto-join).
+// Returns { conversation, mentions:[{id,userId,isMember}] } for live fan-out.
+async function recordMentions(conversationId, message) {
+  const usernames = extractMentionUsernames(message.content);
+  if (!usernames.length) return { conversation: null, mentions: [] };
+  const conversation = await getConversationById(conversationId);
+  if (!conversation) return { conversation: null, mentions: [] };
+  const conn = getPool();
+  const now = new Date();
+  const mentions = [];
+  const seen = new Set([message.userId]); // never notify the author of their own mention
+  // eslint-disable-next-line no-restricted-syntax
+  for (const uname of usernames) {
+    // eslint-disable-next-line no-await-in-loop
+    const user = await getUserByUsername(uname);
+    if (!user || user.status !== 'active' || seen.has(user.id)) continue;
+    seen.add(user.id);
+    // eslint-disable-next-line no-await-in-loop
+    const member = await isMember(conversationId, user.id);
+    const visible = member || (conversation.type === 'room' && conversation.isPublic);
+    if (!visible) continue;
+    const id = randomUUID();
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      await conn.execute(
+        'INSERT INTO mentions (id, message_id, conversation_id, user_id, author_id, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+        [id, message.id, conversationId, user.id, message.userId, now]
+      );
+      mentions.push({ id, userId: user.id, isMember: member });
+    } catch (err) {
+      // duplicate (uniq_mention) or race -- skip silently
+    }
+  }
+  return { conversation, mentions };
+}
+
+async function listMentionsForUser(userId, { limit = 50 } = {}) {
+  const conn = getPool();
+  const [rows] = await conn.execute(
+    `SELECT
+       mn.id,
+       mn.conversation_id AS conversationId,
+       mn.message_id AS messageId,
+       mn.created_at AS createdAt,
+       mn.read_at AS readAt,
+       c.title AS roomTitle,
+       c.type AS roomType,
+       c.is_public AS isPublic,
+       msg.content AS content,
+       au.id AS authorId,
+       au.display_name AS authorName
+     FROM mentions mn
+     JOIN conversations c ON c.id = mn.conversation_id
+     JOIN messages msg ON msg.id = mn.message_id
+     JOIN users au ON au.id = mn.author_id
+     WHERE mn.user_id = ?
+     ORDER BY mn.created_at DESC
+     LIMIT ?`,
+    [userId, limit]
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    conversationId: r.conversationId,
+    messageId: r.messageId,
+    roomTitle: r.roomTitle || null,
+    roomType: r.roomType,
+    isPublic: Boolean(r.isPublic),
+    content: r.content,
+    authorId: r.authorId,
+    authorName: r.authorName,
+    createdAt: iso(r.createdAt),
+    readAt: r.readAt ? iso(r.readAt) : null
+  }));
+}
+
+async function markMentionsRead(userId, { conversationId = null, mentionId = null } = {}) {
+  const conn = getPool();
+  let sql = 'UPDATE mentions SET read_at = ? WHERE user_id = ? AND read_at IS NULL';
+  const params = [new Date(), userId];
+  if (conversationId) {
+    sql += ' AND conversation_id = ?';
+    params.push(conversationId);
+  }
+  if (mentionId) {
+    sql += ' AND id = ?';
+    params.push(mentionId);
+  }
+  const [res] = await conn.execute(sql, params);
+  return res.affectedRows || 0;
 }
 
 async function getStats() {
@@ -1610,6 +1720,9 @@ module.exports = {
   listRoomsForUser,
   listMessages,
   createMessage,
+  recordMentions,
+  listMentionsForUser,
+  markMentionsRead,
   createOrGetDirectConversation,
   createRoom,
   joinRoom,

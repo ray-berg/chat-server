@@ -28,6 +28,8 @@ const { createRateLimiter } = require('../rateLimiter');
 const router = express.Router();
 const loginLimiter = createRateLimiter({ windowMs: 60 * 1000, max: 10 });
 const registrationLimiter = createRateLimiter({ windowMs: 60 * 1000, max: 5 });
+// Generous: a client refreshes ~once per token lifetime, but cap abuse per IP.
+const refreshLimiter = createRateLimiter({ windowMs: 60 * 1000, max: 60 });
 
 const registerSchema = z.object({
   username: z
@@ -164,6 +166,19 @@ router.post('/logout', authenticateRequest, async (req, res) => {
   await updateUserPresence(req.user.id, 'offline');
 
   return res.json({ message: 'Logged out successfully' });
+});
+
+// Sliding session: exchange a still-valid login token for a fresh one so an
+// active session doesn't hard-expire at the JWT TTL (the cause of the WS
+// reconnect storm + dangling sessions). JWT sessions only -- csk_ API keys are
+// long-lived and have nothing to refresh. authenticateRequest has already
+// verified the presented token is valid and not blacklisted.
+router.post('/refresh', refreshLimiter, authenticateRequest, (req, res) => {
+  if (req.apiKeyId || !req.token) {
+    return res.status(400).json({ error: 'Refresh applies to login sessions only' });
+  }
+  const token = createToken(req.user);
+  return res.json({ token, user: sanitizeUser(req.user) });
 });
 
 router.get('/me', authenticateRequest, (req, res) => {

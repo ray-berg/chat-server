@@ -77,6 +77,11 @@ export async function login(username, password) {
 
 export const api = {
   me: () => apiGet('/api/auth/me'),
+  refresh: async () => {
+    const data = await apiPost('/api/auth/refresh');
+    if (data && data.token) setToken(data.token);
+    return data;
+  },
   conversations: () => apiGet('/api/conversations'),
   rooms: () => apiGet('/api/rooms'),
   users: (q = '') => apiGet(`/api/users?q=${encodeURIComponent(q)}`),
@@ -95,6 +100,8 @@ export const api = {
   banFromRoom: (roomId, targetUserId, reason) =>
     apiPost(`/api/rooms/${roomId}/ban`, { targetUserId, reason }),
   addRoomMember: (roomId, targetUserId) => apiPost(`/api/rooms/${roomId}/members`, { targetUserId }),
+  mentions: () => apiGet('/api/mentions'),
+  readMentions: (conversationId) => apiPost('/api/mentions/read', conversationId ? { conversationId } : {}),
   approvals: (direction = 'all') => apiGet(`/api/approvals?direction=${direction}`),
   respondApproval: (id, decision) => apiPost(`/api/approvals/${id}/respond`, { decision }),
   setPresence: (presenceStatus) => apiPut('/api/users/me/profile', { presenceStatus }),

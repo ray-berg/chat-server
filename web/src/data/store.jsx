@@ -2,6 +2,21 @@ import React from 'react';
 import { api, getToken, setToken as persistToken } from './api.js';
 import { connectSocket } from './socket.js';
 import { mapUser, mapMessage, userFromMessage } from '../lib/format.js';
+import { playDing, playTick, soundUnfocusedOnly } from '../lib/sound.js';
+
+// Decode a JWT's `exp` (ms) without verifying. Returns 0 for non-JWT tokens
+// (e.g. csk_ API keys) or anything undecodable, so callers can skip refresh.
+function tokenExpiryMs(token) {
+  try {
+    const part = (token || '').split('.')[1];
+    if (!part) return 0;
+    const b64 = part.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(part.length / 4) * 4, '=');
+    const json = JSON.parse(atob(b64));
+    return json.exp ? json.exp * 1000 : 0;
+  } catch {
+    return 0;
+  }
+}
 
 const ChatContext = React.createContext(null);
 export function useChat() {
@@ -59,6 +74,7 @@ export function ChatProvider({ children }) {
   const [typingByChannel, setTypingByChannel] = React.useState({});
   const [thinkingByChannel, setThinkingByChannel] = React.useState({});
   const [approvals, setApprovals] = React.useState({ incoming: [], outgoing: [] });
+  const [mentionsByChannel, setMentionsByChannel] = React.useState({});
   const [connection, setConnection] = React.useState('idle');
 
   const socketRef = React.useRef(null);
@@ -66,6 +82,7 @@ export function ChatProvider({ children }) {
   const activeRef = React.useRef(null);
   const meRef = React.useRef(null);
   const typingTimers = React.useRef({});
+  const refreshTimer = React.useRef(null);
   channelsRef.current = channels;
   activeRef.current = activeChannelId;
   meRef.current = currentUser;
@@ -108,6 +125,19 @@ export function ChatProvider({ children }) {
     }
   }, []);
 
+  const refreshMentions = React.useCallback(async () => {
+    try {
+      const res = await api.mentions();
+      const counts = {};
+      (res.mentions || []).forEach((m) => {
+        if (!m.readAt) counts[m.conversationId] = (counts[m.conversationId] || 0) + 1;
+      });
+      setMentionsByChannel(counts);
+    } catch {
+      /* mentions are best-effort */
+    }
+  }, []);
+
   const loadMessages = React.useCallback(async (channelId, force = false) => {
     if (!channelId) return;
     if (!force && messagesByChannel[channelId]) return;
@@ -135,6 +165,14 @@ export function ChatProvider({ children }) {
         }
       }
       await loadMessages(channelId, true);
+      // Opening a channel clears its mention badge (server + local).
+      setMentionsByChannel((prev) => {
+        if (!prev[channelId]) return prev;
+        const next = { ...prev };
+        delete next[channelId];
+        return next;
+      });
+      api.readMentions(channelId).catch(() => {});
     },
     [loadMessages, refreshChannels],
   );
@@ -329,18 +367,63 @@ export function ChatProvider({ children }) {
       switch (msg.type) {
         case 'ready':
           if (msg.user) {
-            setCurrentUser((u) => ({ ...mapUser(msg.user), ...u, presence: msg.user.presenceStatus }));
+            // The server marks us online on every (re)connect, but the `ready`
+            // payload carries the pre-connect user row, so trust the connect
+            // instead of its stale presenceStatus.
+            setCurrentUser((u) => ({ ...mapUser(msg.user), ...u, presence: 'online' }));
             mergeUsers([msg.user]);
           }
+          // `ready` fires on each (re)connect; rehydrate so channels/approvals
+          // that changed during a disconnect appear without a manual reload.
+          refreshChannels();
+          refreshApprovals();
+          refreshMentions();
           break;
         case 'message:created':
           if (msg.message) {
             mergeUsers([userFromMessage(msg.message)]);
             appendMessage(msg.conversationId, mapMessage(msg.message));
+            // Sound only for the room/DM currently in view, never for our own
+            // posts: a ding when the tab is backgrounded, a quiet tick when not.
+            if (
+              msg.conversationId === activeRef.current &&
+              msg.message.userId !== meRef.current?.id
+            ) {
+              if (document.hidden) playDing();
+              else if (!soundUnfocusedOnly()) playTick();
+            }
           }
           break;
         case 'presence:updated':
-          if (msg.user) mergeUsers([msg.user]);
+          if (msg.user) {
+            mergeUsers([msg.user]);
+            // Keep our own footer status in sync with server-driven changes.
+            if (msg.user.id === meRef.current?.id) {
+              setCurrentUser((u) => (u ? { ...u, presence: msg.user.presenceStatus } : u));
+            }
+          }
+          break;
+        case 'mention:created':
+          // @mention ping (may be a room we're not in). Chime regardless of focus
+          // or active channel, and badge the channel if it's in our list.
+          if (msg.mention && msg.mention.conversationId) {
+            const cid = msg.mention.conversationId;
+            setMentionsByChannel((prev) =>
+              cid === activeRef.current ? prev : { ...prev, [cid]: (prev[cid] || 0) + 1 },
+            );
+            playDing();
+          }
+          break;
+        case 'agent:status_changed':
+          // Bot activity_status (working/ready/awaiting_review/...). Broadcast to
+          // all clients; patch the user in place so indicators update live.
+          if (msg.userId) {
+            setUsersById((prev) =>
+              prev[msg.userId]
+                ? { ...prev, [msg.userId]: { ...prev[msg.userId], activityStatus: msg.activityStatus } }
+                : prev,
+            );
+          }
           break;
         case 'conversation:updated':
           refreshChannels();
@@ -363,7 +446,7 @@ export function ChatProvider({ children }) {
           break;
       }
     },
-    [appendMessage, mergeUsers, refreshChannels, refreshApprovals, noteTyping],
+    [appendMessage, mergeUsers, refreshChannels, refreshApprovals, refreshMentions, noteTyping],
   );
 
   // Bootstrap once we have a token.
@@ -373,6 +456,32 @@ export function ChatProvider({ children }) {
       return undefined;
     }
     let cancelled = false;
+
+    // Sliding session: refresh the JWT shortly before it expires so an active
+    // session never hits the 2h TTL (which caused the reconnect storm + dangling
+    // sessions). Refreshing only touches localStorage, so the live socket isn't
+    // disturbed; reconnects read the fresh token via the getToken getter below.
+    const REFRESH_SKEW_MS = 2 * 60 * 1000;
+    function scheduleTokenRefresh() {
+      if (refreshTimer.current) clearTimeout(refreshTimer.current);
+      const expMs = tokenExpiryMs(getToken());
+      if (!expMs) return; // non-JWT (csk_) or undecodable: nothing to refresh
+      const delay = Math.max(5000, expMs - Date.now() - REFRESH_SKEW_MS);
+      refreshTimer.current = setTimeout(async () => {
+        try {
+          await api.refresh(); // rotates the token in localStorage
+          scheduleTokenRefresh(); // reschedule from the fresh token
+        } catch (e) {
+          if (e && e.message === 'Unauthorized') {
+            persistToken(''); // token already dead -> clean re-login
+            setTokenState('');
+          } else {
+            refreshTimer.current = setTimeout(scheduleTokenRefresh, 30000); // transient: retry
+          }
+        }
+      }, delay);
+    }
+
     setConnection('connecting');
     (async () => {
       try {
@@ -386,12 +495,20 @@ export function ChatProvider({ children }) {
         mergeUsers(dir.users || []);
         await refreshChannels();
         await refreshApprovals();
+        refreshMentions();
         if (cancelled) return;
         setReady(true);
-        socketRef.current = connectSocket(token, {
+        socketRef.current = connectSocket(getToken, {
           onStatus: setConnection,
           onMessage: onSocketMessage,
+          onAuthFailure: () => {
+            // Token expired/invalid: drop it so the app returns to the login
+            // screen (the bootstrap effect tears the socket down on token change).
+            persistToken('');
+            setTokenState('');
+          },
         });
+        scheduleTokenRefresh();
       } catch (e) {
         if (cancelled) return;
         if (e.message === 'Unauthorized') {
@@ -404,6 +521,10 @@ export function ChatProvider({ children }) {
     })();
     return () => {
       cancelled = true;
+      if (refreshTimer.current) {
+        clearTimeout(refreshTimer.current);
+        refreshTimer.current = null;
+      }
       if (socketRef.current) {
         socketRef.current.close();
         socketRef.current = null;
@@ -439,7 +560,7 @@ export function ChatProvider({ children }) {
     connection,
     currentUser,
     usersById,
-    channels,
+    channels: channels.map((c) => ({ ...c, mentions: mentionsByChannel[c.id] || 0 })),
     activeChannelId,
     activeChannel: channels.find((c) => c.id === activeChannelId) || null,
     messages: messagesByChannel[activeChannelId] || [],

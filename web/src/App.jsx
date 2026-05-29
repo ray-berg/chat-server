@@ -13,6 +13,7 @@ import { SettingsPanel } from './modals/SettingsPanel.jsx';
 import { CreateRoom } from './modals/CreateRoom.jsx';
 import { AccessRequests } from './modals/AccessRequests.jsx';
 import { AdminUsers } from './modals/AdminUsers.jsx';
+import { GlobalSettings } from './modals/GlobalSettings.jsx';
 import { Avatar, Button } from './components/atoms.jsx';
 import { Icon } from './icons.jsx';
 
@@ -120,6 +121,7 @@ function Shell() {
   const [createRoomOpen, setCreateRoomOpen] = React.useState(false);
   const [accessReqOpen, setAccessReqOpen] = React.useState(false);
   const [adminUsersOpen, setAdminUsersOpen] = React.useState(false);
+  const [globalSettingsOpen, setGlobalSettingsOpen] = React.useState(false);
   const isAdmin = currentUser?.role === 'admin';
   const isMod = isAdmin || currentUser?.role === 'moderator';
 
@@ -197,7 +199,13 @@ function Shell() {
 
   return (
     <div style={{ display: 'flex', height: '100vh', minHeight: 0, width: '100vw', background: 'var(--bg-app)', color: 'var(--fg-2)', overflow: 'hidden' }}>
-      <WorkspaceRail workspaces={workspaces} active="ws" onSelect={() => {}} />
+      <WorkspaceRail
+        workspaces={workspaces}
+        active="ws"
+        onSelect={() => {}}
+        onActivity={() => setRailMode((m) => (m === 'activity' ? null : 'activity'))}
+        onOpenSettings={() => setGlobalSettingsOpen(true)}
+      />
       <ChannelList
         workspace={workspaces[0]}
         channels={channels}
@@ -313,6 +321,7 @@ function Shell() {
         onDeny={denyAccessRequest}
       />
       <AdminUsers open={adminUsersOpen} onClose={() => setAdminUsersOpen(false)} currentUserId={currentUser?.id} />
+      <GlobalSettings open={globalSettingsOpen} onClose={() => setGlobalSettingsOpen(false)} />
     </div>
   );
 }

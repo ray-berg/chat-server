@@ -10,6 +10,16 @@ export const PRESENCE_COLOR = {
   offline: 'var(--gray-600)',
 };
 
+// Bot activity_status (orchestration). Bots show this in place of a presence dot.
+// "ready" = available (per the harness, not "idle").
+export const ACTIVITY_COLOR = {
+  working: 'var(--cyan-400)',
+  awaiting_review: 'var(--warn-400)',
+  awaiting_assignment: 'var(--hold-400)',
+  ready: 'var(--ok-500)',
+  idle: 'var(--gray-600)',
+};
+
 export function Avatar({ user, size = 28, ring = false, square = false, presence = true }) {
   if (!user) {
     return (
@@ -19,7 +29,15 @@ export function Avatar({ user, size = 28, ring = false, square = false, presence
     );
   }
   const radius = square ? 6 : '50%';
-  const showDot = presence && user.presence && !user.bot;
+  // Humans show a presence dot; bots show an activity_status dot (working/ready/etc).
+  const showActivity = presence && user.bot && user.activityStatus;
+  const showPresence = presence && user.presence && !user.bot;
+  const dotColor = showActivity
+    ? ACTIVITY_COLOR[user.activityStatus] || 'var(--gray-600)'
+    : showPresence
+      ? PRESENCE_COLOR[user.presence]
+      : null;
+  const dotTitle = showActivity ? user.activityStatus : showPresence ? user.presence : '';
   return (
     <div style={{ position: 'relative', display: 'inline-block', flexShrink: 0 }}>
       <div
@@ -51,16 +69,17 @@ export function Avatar({ user, size = 28, ring = false, square = false, presence
           user.initials
         )}
       </div>
-      {showDot && (
+      {dotColor && (
         <span
+          title={dotTitle}
           style={{
             position: 'absolute',
             right: -1,
             bottom: -1,
             width: Math.max(8, size * 0.32),
             height: Math.max(8, size * 0.32),
-            borderRadius: '50%',
-            background: PRESENCE_COLOR[user.presence],
+            borderRadius: showActivity ? 3 : '50%',
+            background: dotColor,
             boxShadow: '0 0 0 2px var(--bg-surface)',
           }}
         />

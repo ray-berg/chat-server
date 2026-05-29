@@ -16,6 +16,7 @@ const field = {
 };
 const labelStyle = { fontSize: 11, color: 'var(--fg-4)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, marginBottom: 5, display: 'block' };
 const ROLES = ['user', 'moderator', 'admin'];
+const ACCENTS = ['#3b82f6', '#c9a548', '#22d3ee', '#d946ef'];
 
 function Note({ tone, children }) {
   if (!children) return null;
@@ -46,6 +47,8 @@ function EditUser({ userId, currentUserId, onBack, onChanged }) {
           status: res.user.status,
           manager: !!res.user.manager,
           bot: !!res.user.bot,
+          birthday: res.user.birthday || '',
+          accentColor: res.user.accentColor || '#3b82f6',
         });
       })
       .catch((e) => setMsg({ tone: 'error', text: e.message }));
@@ -65,6 +68,8 @@ function EditUser({ userId, currentUserId, onBack, onChanged }) {
         status: form.status,
         manager: form.manager,
         bot: form.bot,
+        accentColor: form.accentColor,
+        ...(form.birthday ? { birthday: form.birthday } : {}),
       });
       setMsg({ tone: 'ok', text: 'Saved.' });
       onChanged();
@@ -151,6 +156,28 @@ function EditUser({ userId, currentUserId, onBack, onChanged }) {
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--fg-2)' }}>
           <input type="checkbox" checked={form.bot} onChange={(e) => setForm((f) => ({ ...f, bot: e.target.checked }))} /> AI / bot
         </label>
+      </div>
+      <div style={{ display: 'flex', gap: 12, alignItems: 'flex-end' }}>
+        <label style={{ flex: 1 }}>
+          <span style={labelStyle}>Birthday</span>
+          <input style={field} type="date" value={form.birthday || ''} onChange={(e) => setForm((f) => ({ ...f, birthday: e.target.value }))} />
+        </label>
+        <div>
+          <span style={labelStyle}>Accent</span>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {ACCENTS.map((c) => {
+              const active = (form.accentColor || '').toLowerCase() === c.toLowerCase();
+              return (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => setForm((f) => ({ ...f, accentColor: c }))}
+                  style={{ width: 24, height: 24, borderRadius: '50%', background: c, cursor: 'pointer', padding: 0, border: active ? '2px solid var(--fg-1)' : '2px solid transparent', boxShadow: active ? `0 0 0 1px ${c}` : 'none' }}
+                />
+              );
+            })}
+          </div>
+        </div>
       </div>
 
       <Note tone={msg?.tone}>{msg?.text}</Note>

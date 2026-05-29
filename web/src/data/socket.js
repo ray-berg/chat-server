@@ -1,8 +1,11 @@
 // Thin WebSocket wrapper with token auth + auto-reconnect (exponential backoff).
 
-export function connectSocket(token, handlers = {}) {
+export function connectSocket(tokenOrGetter, handlers = {}) {
+  // Accept a getter so each (re)connect uses the *current* token: a session that
+  // refreshed its token mid-stream then reconnects with the fresh one instead of
+  // a stale/expired token.
+  const readToken = typeof tokenOrGetter === 'function' ? tokenOrGetter : () => tokenOrGetter;
   const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-  const url = `${proto}://${window.location.host}/ws?token=${encodeURIComponent(token)}`;
 
   let ws = null;
   let closedByUser = false;
@@ -10,6 +13,7 @@ export function connectSocket(token, handlers = {}) {
   let timer = null;
 
   function open() {
+    const url = `${proto}://${window.location.host}/ws?token=${encodeURIComponent(readToken())}`;
     ws = new WebSocket(url);
 
     ws.onopen = () => {
@@ -27,7 +31,19 @@ export function connectSocket(token, handlers = {}) {
       handlers.onMessage && handlers.onMessage(msg);
     };
 
-    ws.onclose = () => {
+    ws.onclose = (ev) => {
+      // 4001 = the server rejected our token (expired/invalid). Reconnecting with
+      // the same dead token is what caused the ~1/sec "Reconnecting..." self-DoS
+      // loop (onopen on the 101 reset the backoff, then the 4001 close fired). So
+      // stop retrying and surface an auth failure: the app clears the token and
+      // drops to a clean re-login instead of looping forever.
+      if (ev && ev.code === 4001) {
+        closedByUser = true;
+        if (timer) clearTimeout(timer);
+        handlers.onStatus && handlers.onStatus('unauthorized');
+        handlers.onAuthFailure && handlers.onAuthFailure();
+        return;
+      }
       handlers.onStatus && handlers.onStatus('closed');
       if (!closedByUser) {
         retry += 1;

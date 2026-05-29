@@ -9,6 +9,7 @@ const {
   getConversationMembers,
   isMember,
   updateUserPresence,
+  recordMentions,
   getActiveApiKeyByHash,
   touchApiKey,
   listManagerIds,
@@ -136,6 +137,24 @@ function setupWebsocket(server) {
           message
         });
       });
+      // @mention pings: notify mentioned users even when they are NOT members
+      // (ping only, no auto-join). recordMentions enforces visibility (member or
+      // public room; private/DM non-members are skipped).
+      const { conversation, mentions } = await recordMentions(conversationId, message);
+      if (mentions.length) {
+        const room = {
+          id: conversationId,
+          title: conversation ? conversation.title || null : null,
+          type: conversation ? conversation.type : undefined,
+          isPublic: conversation ? Boolean(conversation.isPublic) : false
+        };
+        mentions.forEach((mn) => {
+          sendToUser(mn.userId, {
+            type: 'mention:created',
+            mention: { id: mn.id, conversationId, room, message, isMember: mn.isMember }
+          });
+        });
+      }
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error('WS broadcast error', err);
@@ -144,12 +163,20 @@ function setupWebsocket(server) {
 
   events.on('conversation:updated', async ({ conversation }) => {
     try {
+      const payload = { type: 'conversation:updated', conversation };
+      // Rooms share a global namespace: listRoomsForUser returns every room to
+      // every user, so a room create / visibility change / membership change has
+      // to reach all connected clients, not just current members - otherwise a
+      // newly created channel only appears after a manual reload. (The client
+      // turns this event into a refreshChannels().) Direct conversations stay
+      // scoped to their members.
+      if (conversation.type === 'room') {
+        broadcast(payload);
+        return;
+      }
       const members = conversation.members || (await getConversationMembers(conversation.id));
       members.forEach((member) => {
-        sendToUser(member.id, {
-          type: 'conversation:updated',
-          conversation
-        });
+        sendToUser(member.id, payload);
       });
     } catch (err) {
       // eslint-disable-next-line no-console
@@ -238,24 +265,12 @@ function setupWebsocket(server) {
     });
   });
 
-  // activity -> managers, plus the members of the agent's active room; not a
-  // fleet broadcast.
-  events.on('activity:changed', async ({ userId, activityStatus }) => {
-    try {
-      const recipients = new Set(await listManagerIds());
-      const { active } = await getAgentAssignment(userId);
-      if (active) {
-        const members = await getConversationMembers(active.roomId);
-        members.forEach((member) => recipients.add(member.id));
-      }
-      recipients.add(userId);
-      recipients.forEach((id) =>
-        sendToUser(id, { type: 'agent:status_changed', userId, activityStatus })
-      );
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error('WS activity:changed error', err);
-    }
+  // Broadcast like presence: activity_status is low-sensitivity and the office UI
+  // shows bot status to every viewer (directory, members, activity panel) and
+  // updates it live. Widened from the contract-v1 managers+active-room scope on
+  // 2026-05-29 with Mark's sign-off.
+  events.on('activity:changed', ({ userId, activityStatus }) => {
+    broadcast({ type: 'agent:status_changed', userId, activityStatus });
   });
 
   return wss;

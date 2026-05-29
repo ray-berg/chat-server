@@ -338,10 +338,12 @@ function AttachmentCard({ att }) {
   );
 }
 
-export function MessageRun({ msg, usersById, isFirst, currentUserId, onOpenThread, onReact, onRespondApproval, density }) {
+export function MessageRun({ msg, usersById, isFirst, isNew, currentUserId, onOpenThread, onReact, onRespondApproval, density }) {
   const author = usersById[msg.author] || UNKNOWN;
   const mine = currentUserId && msg.author === currentUserId;
   const [hovering, setHovering] = React.useState(false);
+  // Animate the entry of incoming messages (not our own optimistic sends, not history).
+  const animate = isNew && !mine;
 
   if (msg.system) {
     return (
@@ -383,6 +385,7 @@ export function MessageRun({ msg, usersById, isFirst, currentUserId, onOpenThrea
 
   return (
     <div
+      className={animate ? 'chat-msg-in' : undefined}
       onMouseEnter={() => setHovering(true)}
       onMouseLeave={() => setHovering(false)}
       style={{
@@ -627,6 +630,13 @@ function DotsRow({ label }) {
 
 export function MessageList({ channel, messages, usersById, currentUserId, onOpenThread, onReact, onRespondApproval, typing = [], thinking = [], density }) {
   const scrollerRef = React.useRef(null);
+  // Track which message ids we've already rendered, per channel, so only newly
+  // arrived messages animate in. Reset (seed every current id as "seen") on a
+  // channel switch so loading history never animates.
+  const seenRef = React.useRef({ channelId: null, ids: new Set() });
+  if (seenRef.current.channelId !== (channel?.id || null)) {
+    seenRef.current = { channelId: channel?.id || null, ids: new Set(messages.map((m) => m.id)) };
+  }
   React.useEffect(() => {
     const s = scrollerRef.current;
     if (s) s.scrollTop = s.scrollHeight;
@@ -642,12 +652,15 @@ export function MessageList({ channel, messages, usersById, currentUserId, onOpe
     }
     const prev = messages[i - 1];
     const isFirst = !isSameRun(prev, msg);
+    const isNew = !seenRef.current.ids.has(msg.id);
+    if (isNew) seenRef.current.ids.add(msg.id);
     out.push(
       <MessageRun
         key={msg.id}
         msg={msg}
         usersById={usersById}
         isFirst={isFirst}
+        isNew={isNew}
         currentUserId={currentUserId}
         onOpenThread={onOpenThread}
         onReact={onReact}

@@ -29,7 +29,7 @@ const railIconBtn = {
   padding: 0,
 };
 
-export function WorkspaceRail({ workspaces, active, onSelect }) {
+export function WorkspaceRail({ workspaces, active, onSelect, onActivity, onOpenSettings }) {
   return (
     <div
       style={{
@@ -120,10 +120,10 @@ export function WorkspaceRail({ workspaces, active, onSelect }) {
 
       <div style={{ flex: 1 }} />
 
-      <button title="Activity" style={railIconBtn}>
+      <button title="Activity" style={railIconBtn} onClick={onActivity}>
         <Icon name="activity" size={14} />
       </button>
-      <button title="Settings" style={railIconBtn}>
+      <button title="Workspace settings" style={railIconBtn} onClick={onOpenSettings}>
         <Icon name="settings" size={14} />
       </button>
     </div>
