@@ -265,6 +265,19 @@ function setupWebsocket(server) {
     });
   });
 
+  // Sysadmin command approvals: wake the approving manager on a new request, and
+  // both the worker (awaiting) + manager when it's decided.
+  events.on('command_approval:created', ({ approval }) => {
+    [approval.targetId, approval.requesterId].forEach((id) => {
+      if (id) sendToUser(id, { type: 'command_approval:created', approval });
+    });
+  });
+  events.on('command_approval:updated', ({ approval }) => {
+    [approval.requesterId, approval.targetId].forEach((id) => {
+      if (id) sendToUser(id, { type: 'command_approval:updated', approval });
+    });
+  });
+
   // Broadcast like presence: activity_status is low-sensitivity and the office UI
   // shows bot status to every viewer (directory, members, activity panel) and
   // updates it live. Widened from the contract-v1 managers+active-room scope on

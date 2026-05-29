@@ -1056,6 +1056,119 @@ async function listMentionsForUser(userId, { limit = 50 } = {}) {
   }));
 }
 
+// ---- Sysadmin command approvals (manager-in-the-loop) --------------------
+
+async function getCommandApproval(id) {
+  const conn = getPool();
+  const [rows] = await conn.execute(
+    `SELECT ca.*,
+       ru.username AS requesterUsername, ru.display_name AS requesterName,
+       mu.username AS targetUsername,
+       du.username AS decidedByUsername
+     FROM command_approvals ca
+     JOIN users ru ON ru.id = ca.requester_id
+     JOIN users mu ON mu.id = ca.target_id
+     LEFT JOIN users du ON du.id = ca.decided_by
+     WHERE ca.id = ?`,
+    [id]
+  );
+  const r = rows[0];
+  if (!r) return null;
+  const parse = (v) => (v == null ? null : typeof v === 'string' ? JSON.parse(v) : v);
+  return {
+    id: r.id,
+    status: r.status,
+    requesterId: r.requester_id,
+    requesterPrincipal: r.requesterUsername, // forwarded for the host-ledger check
+    requesterName: r.requesterName,
+    targetId: r.target_id,
+    targetPrincipal: r.targetUsername,
+    conversationId: r.conversation_id || null,
+    command: { tool: r.tool, args: parse(r.args) || {}, display: parse(r.display) },
+    reason: r.reason || null,
+    decidedBy: r.decided_by || null,
+    decidedByPrincipal: r.decidedByUsername || null,
+    createdAt: iso(r.created_at),
+    decidedAt: iso(r.decided_at)
+  };
+}
+
+// Worker submits a proposed command; the approver is resolved SERVER-SIDE as the
+// manager holding the worker's active (exclusive) assignment -- a worker cannot
+// pick its own approver. No active assignment => no approver => reject.
+async function createCommandApproval({ requesterId, tool, args, display = null, conversationId = null }) {
+  const { active } = await getAgentAssignment(requesterId);
+  if (!active || !active.assignedBy) {
+    const err = new Error('No active assignment: no manager to approve this command');
+    err.statusCode = 409;
+    throw err;
+  }
+  const conn = getPool();
+  const id = randomUUID();
+  await conn.execute(
+    `INSERT INTO command_approvals
+       (id, requester_id, target_id, conversation_id, tool, args, display, status, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
+    [
+      id,
+      requesterId,
+      active.assignedBy,
+      conversationId || active.roomId || null,
+      tool,
+      JSON.stringify(args || {}),
+      display ? JSON.stringify(display) : null,
+      new Date()
+    ]
+  );
+  return getCommandApproval(id);
+}
+
+async function respondToCommandApproval({ id, responderId, decision, reason = null }) {
+  const existing = await getCommandApproval(id);
+  if (!existing) {
+    const e = new Error('Approval not found');
+    e.statusCode = 404;
+    throw e;
+  }
+  if (existing.targetId !== responderId) {
+    const e = new Error('Only the assigned manager may respond to this approval');
+    e.statusCode = 403;
+    throw e;
+  }
+  if (existing.status !== 'pending') {
+    const e = new Error(`Approval already ${existing.status}`);
+    e.statusCode = 409;
+    throw e;
+  }
+  const conn = getPool();
+  await conn.execute(
+    'UPDATE command_approvals SET status = ?, reason = ?, decided_by = ?, decided_at = ? WHERE id = ? AND status = ?',
+    [decision, reason, responderId, new Date(), id, 'pending']
+  );
+  return getCommandApproval(id);
+}
+
+async function listCommandApprovalsForUser(userId, { role = 'target', status = null, limit = 50 } = {}) {
+  const conn = getPool();
+  const col = role === 'requester' ? 'requester_id' : 'target_id';
+  const params = [userId];
+  let sql = `SELECT id FROM command_approvals WHERE ${col} = ?`;
+  if (status) {
+    sql += ' AND status = ?';
+    params.push(status);
+  }
+  sql += ' ORDER BY created_at DESC LIMIT ?';
+  params.push(limit);
+  const [rows] = await conn.execute(sql, params);
+  const out = [];
+  // eslint-disable-next-line no-restricted-syntax
+  for (const row of rows) {
+    // eslint-disable-next-line no-await-in-loop
+    out.push(await getCommandApproval(row.id));
+  }
+  return out;
+}
+
 async function markMentionsRead(userId, { conversationId = null, mentionId = null } = {}) {
   const conn = getPool();
   let sql = 'UPDATE mentions SET read_at = ? WHERE user_id = ? AND read_at IS NULL';
@@ -1723,6 +1836,10 @@ module.exports = {
   recordMentions,
   listMentionsForUser,
   markMentionsRead,
+  createCommandApproval,
+  getCommandApproval,
+  respondToCommandApproval,
+  listCommandApprovalsForUser,
   createOrGetDirectConversation,
   createRoom,
   joinRoom,

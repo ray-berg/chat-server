@@ -562,6 +562,9 @@ export function ChatProvider({ children }) {
   }, []);
 
   const logout = React.useCallback(() => {
+    // Invalidate the token server-side (blacklist) before dropping it locally, so
+    // a logged-out token can't be reused. Best-effort; we log out regardless.
+    api.logout().catch(() => {});
     if (socketRef.current) {
       socketRef.current.close();
       socketRef.current = null;

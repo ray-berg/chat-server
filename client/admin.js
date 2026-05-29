@@ -1,5 +1,8 @@
 const state = {
-  token: localStorage.getItem('chat_token'),
+  // The React app (main UI) stores the JWT under 'chat.token'; the legacy client
+  // used 'chat_token'. Read the React key first so the admin panel shares the
+  // session you established in the chat app, falling back to the legacy key.
+  token: localStorage.getItem('chat.token') || localStorage.getItem('chat_token'),
   user: null,
   users: [],
   auditLogs: [],

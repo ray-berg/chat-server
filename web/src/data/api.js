@@ -77,6 +77,7 @@ export async function login(username, password) {
 
 export const api = {
   me: () => apiGet('/api/auth/me'),
+  logout: () => apiPost('/api/auth/logout'),
   refresh: async () => {
     const data = await apiPost('/api/auth/refresh');
     if (data && data.token) setToken(data.token);
