@@ -212,8 +212,22 @@ function RoomAdminSection({ channel, isMod, onSetVisibility, fetchRoomRequests, 
   );
 }
 
-function DetailsPane({ channel, members, usersById, isMod, onSetVisibility, fetchRoomRequests, onRespondRequest }) {
+function DetailsPane({ channel, members, usersById, isMod, isAdmin, onSetVisibility, fetchRoomRequests, onRespondRequest, onArchive, onDelete }) {
   const memberUsers = members.map((id) => usersById[id]).filter(Boolean);
+  const isRoom = channel.type === 'room';
+  const isLobby = (channel.name || '').toLowerCase() === 'lobby';
+  const canArchive = isMod && isRoom && !isLobby;
+  const canDelete = isAdmin && isRoom && !isLobby;
+  const handleArchive = () => {
+    if (window.confirm(`Archive #${channel.name}? It will be hidden for everyone but can be restored from Workspace settings.`)) {
+      onArchive?.(channel.id);
+    }
+  };
+  const handleDelete = () => {
+    if (window.confirm(`Permanently delete #${channel.name}? This erases all of its messages and cannot be undone.`)) {
+      onDelete?.(channel.id);
+    }
+  };
   return (
     <div className="nocos-scrollbar" style={{ flex: 1, overflowY: 'auto', minHeight: 0, padding: '12px 14px' }}>
       <RoomAdminSection
@@ -268,6 +282,26 @@ function DetailsPane({ channel, members, usersById, isMod, onSetVisibility, fetc
           Leave channel
         </Button>
       </div>
+      {(canArchive || canDelete) && (
+        <DetailSection title="Danger zone">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {canArchive && (
+              <Button variant="flat" size="sm" icon="archive" onClick={handleArchive}>
+                Archive channel
+              </Button>
+            )}
+            {canDelete && (
+              <Button variant="danger" size="sm" icon="trash" onClick={handleDelete}>
+                Delete channel
+              </Button>
+            )}
+            <p style={{ margin: 0, fontSize: 11, color: 'var(--fg-5)' }}>
+              {canArchive ? 'Archiving hides the channel for everyone; history is kept and it can be restored. ' : ''}
+              {canDelete ? 'Deleting permanently erases the channel and all its messages.' : ''}
+            </p>
+          </div>
+        </DetailSection>
+      )}
     </div>
   );
 }
@@ -467,6 +501,7 @@ export function RightRail({
   messages = [],
   threadSourceId,
   isMod,
+  isAdmin,
   currentUserId,
   onRespondApproval,
   onThreadSend,
@@ -474,6 +509,8 @@ export function RightRail({
   fetchRoomRequests,
   onRespondRequest,
   onBan,
+  onArchive,
+  onDelete,
   onClose,
 }) {
   if (!mode) return null;
@@ -488,9 +525,12 @@ export function RightRail({
           members={members}
           usersById={usersById}
           isMod={isMod}
+          isAdmin={isAdmin}
           onSetVisibility={onSetVisibility}
           fetchRoomRequests={fetchRoomRequests}
           onRespondRequest={onRespondRequest}
+          onArchive={onArchive}
+          onDelete={onDelete}
         />
       )}
       {mode === 'members' && (

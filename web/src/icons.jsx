@@ -10,6 +10,8 @@ export const ICONS = {
   bellOff: 'M3 3l18 18M9 4a6 6 0 0 1 9 4c0 7 3 7 3 9h-5M6 8c0 7-3 7-3 9h12',
   pin: 'M12 17v5M9 3h6l-1 4 3 3-3 3H8l-3-3 3-3-1-4Z',
   plus: 'M12 5v14M5 12h14',
+  archive: 'M3 4h18v4H3zM5 8v12h14V8M9 12h6',
+  trash: 'M4 7h16M9 7V4h6v3M6 7l1 14h10l1-14',
   chevDown: 'm6 9 6 6 6-6',
   chevRight: 'm9 6 6 6-6 6',
   chevLeft: 'm15 6-6 6 6 6',

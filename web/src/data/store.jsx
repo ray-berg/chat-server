@@ -326,6 +326,39 @@ export function ChatProvider({ children }) {
     [refreshChannels],
   );
 
+  const archiveRoom = React.useCallback(
+    async (id) => {
+      await api.archiveRoom(id);
+      // The conversation:removed WS frame also fires for us; refresh + bounce now
+      // so the actor sees it leave immediately without waiting on the round-trip.
+      if (activeRef.current === id) setActiveChannelId(null);
+      await refreshChannels();
+    },
+    [refreshChannels],
+  );
+
+  const restoreRoom = React.useCallback(
+    async (id) => {
+      await api.restoreRoom(id);
+      await refreshChannels();
+    },
+    [refreshChannels],
+  );
+
+  const deleteRoom = React.useCallback(
+    async (id) => {
+      await api.deleteRoom(id);
+      if (activeRef.current === id) setActiveChannelId(null);
+      await refreshChannels();
+    },
+    [refreshChannels],
+  );
+
+  const fetchArchivedRooms = React.useCallback(
+    () => api.archivedRooms().then((r) => r.rooms || []).catch(() => []),
+    [],
+  );
+
   const fetchRoomRequests = React.useCallback((id) => api.roomRequests(id).then((r) => r.requests || []), []);
 
   const respondRoomRequest = React.useCallback(
@@ -457,6 +490,18 @@ export function ChatProvider({ children }) {
           }
           break;
         case 'conversation:updated':
+          refreshChannels();
+          break;
+        case 'conversation:removed':
+          // Room archived or hard-deleted: drop it from the list, and if we were
+          // viewing it, fall back to the lobby (or the first remaining room).
+          if (activeRef.current === msg.conversationId) {
+            const remaining = channelsRef.current.filter(
+              (c) => c.id !== msg.conversationId && c.type === 'room',
+            );
+            const lobby = remaining.find((c) => (c.name || '').toLowerCase() === 'lobby');
+            setActiveChannelId(lobby?.id || remaining[0]?.id || null);
+          }
           refreshChannels();
           break;
         case 'approval:updated':
@@ -618,6 +663,10 @@ export function ChatProvider({ children }) {
     searchUsers,
     createRoom,
     setRoomVisibility,
+    archiveRoom,
+    restoreRoom,
+    deleteRoom,
+    fetchArchivedRooms,
     fetchRoomRequests,
     respondRoomRequest,
     banFromRoom,

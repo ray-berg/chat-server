@@ -463,7 +463,8 @@ async function getConversationById(id) {
        title,
        is_public AS isPublic,
        created_by AS createdBy,
-       created_at AS createdAt
+       created_at AS createdAt,
+       archived_at AS archivedAt
      FROM conversations
      WHERE id = ?`,
     [id]
@@ -471,7 +472,12 @@ async function getConversationById(id) {
   const conversation = rows[0];
   if (!conversation) return null;
   const members = await getConversationMembers(id);
-  return { ...conversation, isPublic: Boolean(conversation.isPublic), members };
+  return {
+    ...conversation,
+    isPublic: Boolean(conversation.isPublic),
+    archivedAt: iso(conversation.archivedAt),
+    members
+  };
 }
 
 async function createConversation({ type, title, createdBy, isPublic = true }) {
@@ -508,7 +514,7 @@ async function listRoomsForUser(userId) {
        ) AS pendingRequestCount
      FROM conversations c
      LEFT JOIN room_join_requests rjr ON rjr.room_id = c.id AND rjr.requester_id = ?
-     WHERE c.type = 'room'
+     WHERE c.type = 'room' AND c.archived_at IS NULL
      ORDER BY c.title ASC`,
     [userId, userId, userId]
   );
@@ -629,6 +635,83 @@ async function updateRoomVisibility(roomId, isPublic) {
     throw new Error('Room not found');
   }
   return getConversationById(roomId);
+}
+
+// Soft archive / restore a room. Archived rooms are filtered out of
+// listRoomsForUser (hidden from every client) but the conversation + history
+// persist and can be restored. The lobby is protected. Idempotent.
+async function archiveRoom(roomId, { archived = true } = {}) {
+  const room = await getConversationById(roomId);
+  if (!room || room.type !== 'room') {
+    const err = new Error('Room not found');
+    err.statusCode = 404;
+    throw err;
+  }
+  const lobbyId = await ensureLobbyRoom();
+  if (roomId === lobbyId) {
+    const err = new Error('The lobby cannot be archived');
+    err.statusCode = 400;
+    throw err;
+  }
+  const conn = getPool();
+  await conn.execute(
+    `UPDATE conversations SET archived_at = ? WHERE id = ? AND type = 'room'`,
+    [archived ? new Date() : null, roomId]
+  );
+  return getConversationById(roomId);
+}
+
+// Hard delete a room. The conversations FK graph is ON DELETE CASCADE for
+// messages, members, bans, join requests, read receipts, mentions and agent
+// assignments, so a single DELETE purges all of it; command_approvals keep their
+// row with conversation_id nulled (ON DELETE SET NULL). The lobby is protected.
+async function deleteRoom(roomId) {
+  const room = await getConversationById(roomId);
+  if (!room || room.type !== 'room') {
+    const err = new Error('Room not found');
+    err.statusCode = 404;
+    throw err;
+  }
+  const lobbyId = await ensureLobbyRoom();
+  if (roomId === lobbyId) {
+    const err = new Error('The lobby cannot be deleted');
+    err.statusCode = 400;
+    throw err;
+  }
+  const conn = getPool();
+  const [res] = await conn.execute('DELETE FROM conversations WHERE id = ? AND type = ?', [
+    roomId,
+    'room'
+  ]);
+  return (res.affectedRows || 0) > 0;
+}
+
+// Archived rooms, for the moderation/restore UI. Same shape as listRoomsForUser
+// but only archived_at IS NOT NULL.
+async function listArchivedRooms() {
+  const conn = getPool();
+  const [rows] = await conn.execute(
+    `SELECT
+       c.id,
+       c.title,
+       c.is_public AS isPublic,
+       c.created_by AS createdBy,
+       c.created_at AS createdAt,
+       c.archived_at AS archivedAt,
+       (SELECT COUNT(*) FROM conversation_members cm WHERE cm.conversation_id = c.id) AS memberCount
+     FROM conversations c
+     WHERE c.type = 'room' AND c.archived_at IS NOT NULL
+     ORDER BY c.archived_at DESC`
+  );
+  return rows.map((row) => ({
+    id: row.id,
+    title: row.title || 'Room',
+    isPublic: Boolean(row.isPublic),
+    createdBy: row.createdBy,
+    createdAt: iso(row.createdAt),
+    archivedAt: iso(row.archivedAt),
+    memberCount: Number(row.memberCount) || 0
+  }));
 }
 
 async function getRoomJoinRequestById(id) {
@@ -1861,6 +1944,9 @@ module.exports = {
   isUserBannedFromRoom,
   isMember,
   updateRoomVisibility,
+  archiveRoom,
+  deleteRoom,
+  listArchivedRooms,
   createRoomJoinRequest,
   listRoomJoinRequests,
   respondRoomJoinRequest,

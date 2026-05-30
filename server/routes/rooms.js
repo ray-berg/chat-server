@@ -12,9 +12,13 @@ const {
   getUserById,
   isMember,
   updateRoomVisibility,
+  archiveRoom,
+  deleteRoom,
+  listArchivedRooms,
   createRoomJoinRequest,
   listRoomJoinRequests,
-  respondRoomJoinRequest
+  respondRoomJoinRequest,
+  recordAuditLog
 } = require('../db');
 const { authenticateRequest, requireRole } = require('../auth');
 const events = require('../events');
@@ -52,6 +56,17 @@ router.get('/', async (req, res) => {
   await ensureLobbyRoom();
   const rooms = await listRoomsForUser(req.user.id);
   return res.json({ rooms });
+});
+
+// Archived rooms, for the moderation/restore UI. Declared before the parametric
+// `/:roomId/...` routes so "archived" is not captured as a roomId.
+router.get('/archived', requireRole('admin', 'moderator'), async (req, res) => {
+  try {
+    const rooms = await listArchivedRooms();
+    return res.json({ rooms });
+  } catch (error) {
+    return res.status(400).json({ error: error.message || 'Unable to load archived rooms' });
+  }
 });
 
 const createSchema = z.object({
@@ -108,6 +123,52 @@ router.post('/:roomId/leave', async (req, res) => {
     return res.json({ ok: true, left });
   } catch (error) {
     return res.status(400).json({ error: error.message || 'Unable to leave room' });
+  }
+});
+
+// Archive a room (reversible). Mod + member, like other moderation actions. The
+// room is hidden from every client's list (it drops out of listRoomsForUser);
+// conversation:removed tells clients to refresh and bounce anyone viewing it.
+router.post('/:roomId/archive', requireRole('admin', 'moderator'), async (req, res) => {
+  try {
+    await requireModeratorMembership(req.params.roomId, req.user);
+    const room = await archiveRoom(req.params.roomId, { archived: true });
+    await recordAuditLog({ actorId: req.user.id, action: 'room.archive', metadata: { roomId: req.params.roomId } });
+    events.emit('conversation:removed', { conversationId: req.params.roomId, initiatorId: req.user.id });
+    return res.json({ room });
+  } catch (error) {
+    const status = error.statusCode || 400;
+    return res.status(status).json({ error: error.message || 'Unable to archive room' });
+  }
+});
+
+// Restore an archived room. Mod-gated; membership not required (an archived room
+// is not in the mover's active list, so requiring membership would deadlock).
+router.post('/:roomId/restore', requireRole('admin', 'moderator'), async (req, res) => {
+  try {
+    const room = await archiveRoom(req.params.roomId, { archived: false });
+    await recordAuditLog({ actorId: req.user.id, action: 'room.restore', metadata: { roomId: req.params.roomId } });
+    events.emit('conversation:updated', { conversation: room, initiatorId: req.user.id });
+    return res.json({ room });
+  } catch (error) {
+    const status = error.statusCode || 400;
+    return res.status(status).json({ error: error.message || 'Unable to restore room' });
+  }
+});
+
+// Permanent hard delete. Admin only (no membership requirement, so an admin can
+// purge orphaned/throwaway rooms they never joined). Cascades to all children.
+router.delete('/:roomId', requireRole('admin'), async (req, res) => {
+  try {
+    const deleted = await deleteRoom(req.params.roomId);
+    if (deleted) {
+      await recordAuditLog({ actorId: req.user.id, action: 'room.delete', metadata: { roomId: req.params.roomId } });
+      events.emit('conversation:removed', { conversationId: req.params.roomId, initiatorId: req.user.id });
+    }
+    return res.json({ ok: true, deleted });
+  } catch (error) {
+    const status = error.statusCode || 400;
+    return res.status(status).json({ error: error.message || 'Unable to delete room' });
   }
 });
 

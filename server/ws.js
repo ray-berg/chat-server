@@ -184,6 +184,13 @@ function setupWebsocket(server) {
     }
   });
 
+  // A room was archived or hard-deleted. Rooms share a global namespace, so this
+  // has to reach every connected client (same reasoning as conversation:updated):
+  // each client drops the room from its list and bounces away if it was viewing it.
+  events.on('conversation:removed', ({ conversationId }) => {
+    broadcast({ type: 'conversation:removed', conversationId });
+  });
+
   events.on('approval:updated', ({ request }) => {
     [request.requesterId, request.targetId].forEach((userId) => {
       sendToUser(userId, {

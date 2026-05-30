@@ -135,6 +135,10 @@ function Shell() {
     searchUsers,
     createRoom,
     setRoomVisibility,
+    archiveRoom,
+    deleteRoom,
+    fetchArchivedRooms,
+    restoreRoom,
     fetchRoomRequests,
     respondRoomRequest,
     banFromRoom,
@@ -317,6 +321,7 @@ function Shell() {
         messages={messages}
         threadSourceId={threadSourceId}
         isMod={isMod}
+        isAdmin={isAdmin}
         currentUserId={currentUser?.id}
         onRespondApproval={respondApproval}
         onThreadSend={(text) => sendMessage(text)}
@@ -324,6 +329,8 @@ function Shell() {
         fetchRoomRequests={fetchRoomRequests}
         onRespondRequest={respondRoomRequest}
         onBan={banFromRoom}
+        onArchive={archiveRoom}
+        onDelete={deleteRoom}
         onClose={() => setRailMode(null)}
       />
 
@@ -362,7 +369,15 @@ function Shell() {
         onDeny={denyAccessRequest}
       />
       <AdminUsers open={adminUsersOpen} onClose={() => setAdminUsersOpen(false)} currentUserId={currentUser?.id} />
-      <GlobalSettings open={globalSettingsOpen} onClose={() => setGlobalSettingsOpen(false)} />
+      <GlobalSettings
+        open={globalSettingsOpen}
+        onClose={() => setGlobalSettingsOpen(false)}
+        isMod={isMod}
+        isAdmin={isAdmin}
+        fetchArchivedRooms={fetchArchivedRooms}
+        onRestore={restoreRoom}
+        onDelete={deleteRoom}
+      />
       <ToastHost toasts={toasts} onDismiss={dismissToast} />
     </div>
   );

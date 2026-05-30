@@ -52,7 +52,71 @@ function Row({ title, desc, children }) {
   );
 }
 
-export function GlobalSettings({ open, onClose }) {
+function ArchivedChannels({ isMod, isAdmin, fetchArchivedRooms, onRestore, onDelete }) {
+  const [rooms, setRooms] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+
+  const reload = React.useCallback(() => {
+    setLoading(true);
+    fetchArchivedRooms()
+      .then((r) => setRooms(r || []))
+      .finally(() => setLoading(false));
+  }, [fetchArchivedRooms]);
+
+  React.useEffect(() => {
+    reload();
+  }, [reload]);
+
+  if (!isMod) return null;
+
+  return (
+    <div style={{ marginTop: 26 }}>
+      <Eyebrow style={{ marginBottom: 2 }}>Archived channels</Eyebrow>
+      <div style={{ fontSize: 11, color: 'var(--fg-5)', marginBottom: 8 }}>
+        Restore an archived channel for everyone{isAdmin ? ', or delete it permanently.' : '.'}
+      </div>
+      {loading && <div style={{ fontSize: 12, color: 'var(--fg-5)' }}>Loading…</div>}
+      {!loading && rooms.length === 0 && (
+        <div style={{ fontSize: 12, color: 'var(--fg-5)' }}>No archived channels.</div>
+      )}
+      {!loading &&
+        rooms.map((r) => (
+          <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderTop: '1px solid var(--border-subtle)' }}>
+            <Icon name="hash" size={12} style={{ color: 'var(--fg-5)' }} />
+            <span style={{ flex: 1, minWidth: 0, fontSize: 13, color: 'var(--fg-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {r.title}
+            </span>
+            <Button
+              variant="flat"
+              size="sm"
+              onClick={async () => {
+                await onRestore(r.id);
+                reload();
+              }}
+            >
+              Restore
+            </Button>
+            {isAdmin && (
+              <Button
+                variant="danger"
+                size="sm"
+                onClick={async () => {
+                  if (window.confirm(`Permanently delete #${r.title}? This erases all of its messages and cannot be undone.`)) {
+                    await onDelete(r.id);
+                    reload();
+                  }
+                }}
+              >
+                Delete
+              </Button>
+            )}
+          </div>
+        ))}
+    </div>
+  );
+}
+
+export function GlobalSettings({ open, onClose, isMod, isAdmin, fetchArchivedRooms, onRestore, onDelete }) {
   const [enabled, setEnabled] = React.useState(true);
   const [unfocused, setUnfocused] = React.useState(false);
 
@@ -104,6 +168,15 @@ export function GlobalSettings({ open, onClose }) {
               Test sound
             </Button>
           </div>
+          {isMod && (
+            <ArchivedChannels
+              isMod={isMod}
+              isAdmin={isAdmin}
+              fetchArchivedRooms={fetchArchivedRooms}
+              onRestore={onRestore}
+              onDelete={onDelete}
+            />
+          )}
           <div style={{ marginTop: 22, fontSize: 11, color: 'var(--fg-5)', lineHeight: 1.5 }}>
             These preferences are stored on this device. Your profile, accent color, and password live in{' '}
             <strong style={{ color: 'var(--fg-3)' }}>Profile &amp; settings</strong>.

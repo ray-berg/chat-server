@@ -95,6 +95,10 @@ export const api = {
   activateRoom: (id) => apiPost(`/api/rooms/${id}/activate`),
   createRoom: (title, isPublic) => apiPost('/api/rooms', { title, isPublic }),
   setRoomVisibility: (id, isPublic) => apiPatch(`/api/rooms/${id}`, { isPublic }),
+  archiveRoom: (id) => apiPost(`/api/rooms/${id}/archive`),
+  restoreRoom: (id) => apiPost(`/api/rooms/${id}/restore`),
+  deleteRoom: (id) => apiDelete(`/api/rooms/${id}`),
+  archivedRooms: () => apiGet('/api/rooms/archived'),
   roomRequests: (id) => apiGet(`/api/rooms/${id}/requests`),
   respondRoomRequest: (roomId, requestId, decision) =>
     apiPost(`/api/rooms/${roomId}/requests/${requestId}/respond`, { decision }),
