@@ -1685,7 +1685,20 @@ async function getAgentProfile(userId) {
     'SELECT skill FROM agent_skills WHERE user_id = ? ORDER BY skill',
     [userId]
   );
-  return mapAgentProfile(rows[0], skillRows.map((r) => r.skill));
+  // Surface live user status alongside the profile so a single read (the harness
+  // + UI already hit this endpoint) covers both presence and activity. These live
+  // on the users row -- activity_status is set by POST /me/activity -- NOT on
+  // agent_profiles, which is why reading them here previously returned nothing.
+  const [userRows] = await conn.execute(
+    'SELECT presence_status AS presenceStatus, activity_status AS activityStatus FROM users WHERE id = ?',
+    [userId]
+  );
+  const status = userRows[0] || {};
+  return {
+    ...mapAgentProfile(rows[0], skillRows.map((r) => r.skill)),
+    presenceStatus: status.presenceStatus || null,
+    activityStatus: status.activityStatus || null
+  };
 }
 
 async function upsertAgentProfile(userId, fields) {
