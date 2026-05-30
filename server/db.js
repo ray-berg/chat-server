@@ -464,7 +464,8 @@ async function getConversationById(id) {
        is_public AS isPublic,
        created_by AS createdBy,
        created_at AS createdAt,
-       archived_at AS archivedAt
+       archived_at AS archivedAt,
+       parent_room_id AS parentRoomId
      FROM conversations
      WHERE id = ?`,
     [id]
@@ -476,23 +477,36 @@ async function getConversationById(id) {
     ...conversation,
     isPublic: Boolean(conversation.isPublic),
     archivedAt: iso(conversation.archivedAt),
+    parentRoomId: conversation.parentRoomId || null,
     members
   };
 }
 
-async function createConversation({ type, title, createdBy, isPublic = true }) {
+async function createConversation({ type, title, createdBy, isPublic = true, parentRoomId = null }) {
   const conn = getPool();
   const id = randomUUID();
   const now = new Date();
   await conn.execute(
-    'INSERT INTO conversations (id, type, title, is_public, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-    [id, type, title || null, isPublic ? 1 : 0, createdBy, now]
+    'INSERT INTO conversations (id, type, title, is_public, created_by, created_at, parent_room_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    [id, type, title || null, isPublic ? 1 : 0, createdBy, now, parentRoomId || null]
   );
   return getConversationById(id);
 }
 
-async function listRoomsForUser(userId) {
+async function listRoomsForUser(userId, { parentRoomId } = {}) {
   const conn = getPool();
+  // Optional filter: only the direct children of a given room. `parentRoomId`
+  // may be a room id (children of it) or the string 'null'/'' for top-level rooms.
+  let parentFilter = '';
+  const parentParams = [];
+  if (parentRoomId !== undefined) {
+    if (parentRoomId === null || parentRoomId === '' || parentRoomId === 'null') {
+      parentFilter = ' AND c.parent_room_id IS NULL';
+    } else {
+      parentFilter = ' AND c.parent_room_id = ?';
+      parentParams.push(parentRoomId);
+    }
+  }
   const [rows] = await conn.execute(
     `SELECT
        c.id,
@@ -500,6 +514,7 @@ async function listRoomsForUser(userId) {
        c.is_public AS isPublic,
        c.created_by AS createdBy,
        c.created_at AS createdAt,
+       c.parent_room_id AS parentRoomId,
        (SELECT COUNT(*) FROM conversation_members cm WHERE cm.conversation_id = c.id) AS memberCount,
        EXISTS(
          SELECT 1 FROM conversation_members cm WHERE cm.conversation_id = c.id AND cm.user_id = ?
@@ -514,9 +529,9 @@ async function listRoomsForUser(userId) {
        ) AS pendingRequestCount
      FROM conversations c
      LEFT JOIN room_join_requests rjr ON rjr.room_id = c.id AND rjr.requester_id = ?
-     WHERE c.type = 'room' AND c.archived_at IS NULL
+     WHERE c.type = 'room' AND c.archived_at IS NULL${parentFilter}
      ORDER BY c.title ASC`,
-    [userId, userId, userId]
+    [userId, userId, userId, ...parentParams]
   );
   const membersMap = await getMembersForConversationIds(rows.map((row) => row.id));
   return rows.map((row) => ({
@@ -525,6 +540,7 @@ async function listRoomsForUser(userId) {
     isPublic: Boolean(row.isPublic),
     createdBy: row.createdBy,
     createdAt: iso(row.createdAt),
+    parentRoomId: row.parentRoomId || null,
     memberCount: Number(row.memberCount) || 0,
     isMember: Boolean(row.isMember),
     banned: Boolean(row.isBanned),
@@ -535,7 +551,7 @@ async function listRoomsForUser(userId) {
   }));
 }
 
-async function createRoom({ title, createdBy, isPublic = true }) {
+async function createRoom({ title, createdBy, isPublic = true, parentRoomId = null }) {
   const name = (title || '').trim();
   if (!name) {
     throw new Error('Room name is required');
@@ -548,7 +564,29 @@ async function createRoom({ title, createdBy, isPublic = true }) {
   if (existing.length) {
     throw new Error('A room with that name already exists');
   }
-  const conversation = await createConversation({ type: 'room', title: name, createdBy, isPublic });
+  // Optional parent (breakout under a project room). Hierarchy is capped at one
+  // level: the parent must be an existing top-level room, so a child can't itself
+  // be a parent -- which keeps the merged timeline a simple 2-level union.
+  if (parentRoomId) {
+    const parent = await getConversationById(parentRoomId);
+    if (!parent || parent.type !== 'room') {
+      const err = new Error('Parent room not found');
+      err.statusCode = 404;
+      throw err;
+    }
+    if (parent.parentRoomId) {
+      const err = new Error('Cannot nest under a breakout room (one level of nesting max)');
+      err.statusCode = 400;
+      throw err;
+    }
+  }
+  const conversation = await createConversation({
+    type: 'room',
+    title: name,
+    createdBy,
+    isPublic,
+    parentRoomId: parentRoomId || null
+  });
   await addMember(conversation.id, createdBy, 'owner');
   return getConversationById(conversation.id);
 }
@@ -698,6 +736,7 @@ async function listArchivedRooms() {
        c.created_by AS createdBy,
        c.created_at AS createdAt,
        c.archived_at AS archivedAt,
+       c.parent_room_id AS parentRoomId,
        (SELECT COUNT(*) FROM conversation_members cm WHERE cm.conversation_id = c.id) AS memberCount
      FROM conversations c
      WHERE c.type = 'room' AND c.archived_at IS NOT NULL
@@ -710,8 +749,76 @@ async function listArchivedRooms() {
     createdBy: row.createdBy,
     createdAt: iso(row.createdAt),
     archivedAt: iso(row.archivedAt),
+    parentRoomId: row.parentRoomId || null,
     memberCount: Number(row.memberCount) || 0
   }));
+}
+
+// Merged QA timeline: messages across a project room + its DIRECT children
+// (breakouts), newest-window-then-chronological, source-labeled, paginated by a
+// `before` createdAt cursor (same convention as listMessages). Caller auth is
+// enforced in the route (moderator + member of the parent room).
+async function listRoomTimeline(parentId, { limit = 50, before } = {}) {
+  const conn = getPool();
+  const [childRows] = await conn.execute(
+    `SELECT id FROM conversations WHERE parent_room_id = ? AND type = 'room'`,
+    [parentId]
+  );
+  const ids = [parentId, ...childRows.map((r) => r.id)];
+  const placeholders = ids.map(() => '?').join(',');
+  let sql = `
+    SELECT
+      m.id,
+      m.content,
+      m.format,
+      m.created_at AS createdAt,
+      m.conversation_id AS roomId,
+      c.title AS roomTitle,
+      u.id AS userId,
+      u.display_name AS displayName,
+      u.role,
+      u.bot,
+      u.avatar_url AS avatarUrl,
+      u.profile_photo_url AS profilePhotoUrl
+    FROM messages m
+    JOIN users u ON u.id = m.user_id
+    JOIN conversations c ON c.id = m.conversation_id
+    WHERE m.conversation_id IN (${placeholders})
+  `;
+  const params = [...ids];
+  if (before) {
+    // Coerce the cursor to a Date so mysql2 serializes it with the same (local)
+    // tz it used to store created_at -- comparing the raw ISO/UTC string directly
+    // mis-parses the trailing 'Z' and shifts by the tz offset.
+    const beforeDate = before instanceof Date ? before : new Date(before);
+    if (!Number.isNaN(beforeDate.getTime())) {
+      sql += ' AND m.created_at < ?';
+      params.push(beforeDate);
+    }
+  }
+  // created_at is second-precision, so add m.id as a deterministic tiebreaker:
+  // fetch newest-first (created_at DESC, id DESC) then reverse to a stable
+  // chronological (created_at ASC, id ASC) order. Messages within the same second
+  // order by id (arbitrary but stable) -- see the DATETIME(3) follow-up note.
+  sql += ' ORDER BY m.created_at DESC, m.id DESC LIMIT ?';
+  params.push(limit);
+  const [rows] = await conn.execute(sql, params);
+  const messages = rows.reverse().map((row) => ({
+    id: row.id,
+    content: row.content,
+    createdAt: iso(row.createdAt),
+    format: row.format || 'text',
+    roomId: row.roomId,
+    roomTitle: row.roomTitle || 'Room',
+    source: row.roomId === parentId ? 'main' : 'breakout',
+    userId: row.userId,
+    displayName: row.displayName,
+    role: row.role,
+    bot: Boolean(row.bot),
+    avatarUrl: row.avatarUrl || DEFAULT_AVATARS[0],
+    profilePhotoUrl: row.profilePhotoUrl || ''
+  }));
+  return { messages, roomIds: ids, hasMore: rows.length === limit };
 }
 
 async function getRoomJoinRequestById(id) {
@@ -1960,6 +2067,7 @@ module.exports = {
   archiveRoom,
   deleteRoom,
   listArchivedRooms,
+  listRoomTimeline,
   createRoomJoinRequest,
   listRoomJoinRequests,
   respondRoomJoinRequest,

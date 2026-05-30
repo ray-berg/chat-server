@@ -15,6 +15,7 @@ const {
   archiveRoom,
   deleteRoom,
   listArchivedRooms,
+  listRoomTimeline,
   createRoomJoinRequest,
   listRoomJoinRequests,
   respondRoomJoinRequest,
@@ -54,7 +55,11 @@ async function requireModeratorMembership(roomId, user) {
 
 router.get('/', async (req, res) => {
   await ensureLobbyRoom();
-  const rooms = await listRoomsForUser(req.user.id);
+  // Optional ?parentRoomId=<id> returns only that room's direct children (breakouts);
+  // 'null'/'' returns top-level rooms. Absent -> all rooms (each carries parentRoomId
+  // so the client can nest them itself).
+  const opts = 'parentRoomId' in req.query ? { parentRoomId: req.query.parentRoomId } : {};
+  const rooms = await listRoomsForUser(req.user.id, opts);
   return res.json({ rooms });
 });
 
@@ -71,7 +76,8 @@ router.get('/archived', requireRole('admin', 'moderator'), async (req, res) => {
 
 const createSchema = z.object({
   title: z.string().min(3).max(80),
-  isPublic: z.boolean().optional()
+  isPublic: z.boolean().optional(),
+  parentRoomId: z.string().uuid().optional()
 });
 
 router.post('/', requireRole('admin', 'moderator'), async (req, res) => {
@@ -83,12 +89,13 @@ router.post('/', requireRole('admin', 'moderator'), async (req, res) => {
     const room = await createRoom({
       title: parse.data.title,
       createdBy: req.user.id,
-      isPublic: typeof parse.data.isPublic === 'boolean' ? parse.data.isPublic : true
+      isPublic: typeof parse.data.isPublic === 'boolean' ? parse.data.isPublic : true,
+      parentRoomId: parse.data.parentRoomId || null
     });
     events.emit('conversation:updated', { conversation: room, isNew: true, initiatorId: req.user.id });
     return res.status(201).json({ room });
   } catch (error) {
-    return res.status(400).json({ error: error.message || 'Unable to create room' });
+    return res.status(error.statusCode || 400).json({ error: error.message || 'Unable to create room' });
   }
 });
 
@@ -169,6 +176,24 @@ router.delete('/:roomId', requireRole('admin'), async (req, res) => {
   } catch (error) {
     const status = error.statusCode || 400;
     return res.status(status).json({ error: error.message || 'Unable to delete room' });
+  }
+});
+
+// Merged QA timeline for a project room + its breakouts. Auth: moderator/admin who
+// is a member of the PARENT room (consistent with other room-moderation actions);
+// it then merges messages from the parent + all its direct children regardless of
+// the caller's per-child membership -- that cross-room view is the point. Paginated
+// by ?before=<ISO createdAt>&limit=<n> (cap 200), same cursor convention as messages.
+router.get('/:roomId/timeline', requireRole('admin', 'moderator'), async (req, res) => {
+  try {
+    await requireModeratorMembership(req.params.roomId, req.user);
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 200);
+    const before = req.query.before || undefined;
+    const timeline = await listRoomTimeline(req.params.roomId, { limit, before });
+    return res.json(timeline);
+  } catch (error) {
+    const status = error.statusCode || 400;
+    return res.status(status).json({ error: error.message || 'Unable to load timeline' });
   }
 });
 
